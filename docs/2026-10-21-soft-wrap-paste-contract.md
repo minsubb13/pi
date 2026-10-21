@@ -116,6 +116,6 @@ Default: on a discovery outside the contract, full stop plus a stop report (`ref
 Waiting for the operator's probe copy results is a legitimate hold on U2 (`hold - U2 - operator copy test`).
 
 ## Carry-over (filled at completion)
-- Left behind:
-- Waiting (what waits on whose judgment):
-- Next action:
+- Left behind: copying pi's own output into other programs (TextEdit etc.) still carries a newline per visual row - output-side fix not in this run. Model catalog snapshot copied from installed 1.3.0 into gitignored `packages/ai/src/providers/data/`; rebuild with `npm run build:offline`, not `npm run build`. Upstream sync procedure not defined.
+- Waiting (what waits on whose judgment): operator decides whether to open the output-side renderer run (probe: Ghostty promote, herdr-in-Ghostty hold).
+- Next action: if opened, scope a renderer change in `tui-main-screen.ts` that emits a logical line as autowrapped full-width rows and redraws a wrapped line contiguously from its first row (herdr needs this).
