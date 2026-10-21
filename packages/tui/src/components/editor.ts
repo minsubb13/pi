@@ -24,6 +24,7 @@ import {
 } from "../utils.ts";
 import { findWordBackward, findWordForward } from "../word-navigation.ts";
 import { SelectList, type SelectListLayoutOptions, type SelectListTheme } from "./select-list.ts";
+import { unwrapSoftWrappedPaste } from "./soft-wrap-paste.ts";
 
 const graphemeSegmenter = getGraphemeSegmenter();
 const wordSegmenter = getWordSegmenter();
@@ -1284,6 +1285,8 @@ export class Editor implements Component, Focusable {
 			.split("")
 			.filter((char) => char === "\n" || char.charCodeAt(0) >= 32)
 			.join("");
+
+		filteredText = unwrapSoftWrappedPaste(filteredText, this.tui.terminal.columns);
 
 		// If pasting a file path (starts with /, ~, or .) and the character before
 		// the cursor is a word character, prepend a space for better readability
