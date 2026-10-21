@@ -11,15 +11,17 @@ const cjkStart = /^[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Scrip
  * Only remove a boundary with a near-full preceding row and a shallow margin on
  * the continuation; leave ambiguous blocks and every untouched row byte-for-byte.
  */
-export function unwrapSoftWrappedPaste(text: string, wrapWidth: number): string {
+export function unwrapSoftWrappedPaste(text: string): string {
 	if (!text.includes("\n")) return text;
 
 	const lines = text.split("\n");
 	const widths = lines.map((line) => visibleWidth(line.trimEnd()));
-	const longestWidth = widths.reduce((longest, width) => Math.max(longest, width), 0);
-	const effectiveWidth = Math.max(Number.isFinite(wrapWidth) ? wrapWidth : 0, longestWidth);
-	// In tiny viewports, line length alone is not enough evidence to rewrite text.
-	const minimumWidth = Math.max(40, effectiveWidth - 12);
+	// The source pane may be narrower than the destination terminal. Infer its
+	// wrap width from the copied rows, allowing room for word-wrapped long tokens.
+	const sourceWidth = widths.reduce((longest, width) => Math.max(longest, width), 0);
+	const slack = Math.max(12, Math.floor(sourceWidth / 5));
+	// Very short rows are not enough evidence to rewrite text.
+	const minimumWidth = Math.max(40, sourceWidth - slack);
 	const result: string[] = [];
 	let fence: { character: string; length: number } | undefined;
 	let previousProtected = true;

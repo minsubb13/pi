@@ -11,9 +11,10 @@ Contract: docs/2026-10-21-soft-wrap-paste-contract.md (authority). This plan is 
 
 ## Notes
 
-- U1: new `soft-wrap-paste.ts` exports a pure `unwrapSoftWrappedPaste(text, wrapWidth)`;
-  `editor.ts` `handlePaste` calls it after normalization and before the large-paste check,
-  passing `this.tui.terminal.columns`.
+- U1 (current, revision 2): new `soft-wrap-paste.ts` exports a pure
+  `unwrapSoftWrappedPaste(text)`; `editor.ts` `handlePaste` calls it after normalization
+  and before the large-paste check. Source wrap width is inferred from copied rows,
+  independently of destination terminal columns.
 - U2: script prints a long line as full-width autowrapped rows, then after a key press
   redraws one row with `\x1b[2K`; operator copies before and after the redraw.
 - U3: `npm install --ignore-scripts`, `npm run build`, then create
@@ -27,7 +28,8 @@ All commands run in /home/remote3/dev/pi (zone root), branch personal/soft-wrap-
 Recorder: node /home/remote3/.pi/agent/git/github.com/minsubb13/amber/plugin/scripts/record.cjs
 Run `unit start U<n>` before each unit, `unit verified U<n> --evidence '...'` after its oracle.
 
-U1 design (`packages/tui/src/components/soft-wrap-paste.ts`, pure, no TUI imports):
+Initial U1 design (superseded where noted in supervision decisions below;
+`packages/tui/src/components/soft-wrap-paste.ts`, pure, no TUI imports):
 - `export function unwrapSoftWrappedPaste(text: string, wrapWidth: number): string`
 - Split on `\n`. Track fenced code (``` or ~~~ toggles): never join inside or at fences.
 - effectiveWidth = max(wrapWidth, longest line display width) using `visibleWidth` from `../utils.ts`.
@@ -114,6 +116,32 @@ U3: check `node_modules` presence; `npm install --ignore-scripts`; `npm run buil
 - Known limitation to report (no change now): if the source terminal was much narrower
   than the current pi terminal and no copied row is wider, nothing joins (safe failure).
 
+## Supervision decision 2 (opus, 2026-10-21 16:10) - smoke test failed, heuristic revision 2
+
+Operator smoke test (new pi pid 3981184, started 16:07:39 via ~/.local/bin/pi with
+current-version 1.3.0-personal, so the patched build ran): long paragraph stayed multi-line.
+Reproduced defect (likely cause; exact operator clipboard not yet captured): this
+session is 182 cols (/dev/pts/5), destination 204 cols (/dev/pts/16).
+`effectiveWidth = max(terminal columns, longest row)` = 204, so the threshold 192 rejects
+every 182-wide row. Repro: pi fixture joins at wrapWidth 105, NOT joined at 182 and 204.
+The "known limitation" affects the operator's normal workflow
+(Ghostty, herdr panes, Orca at different widths), so it must be fixed.
+
+Revision 2 (heuristic round 2 of 3):
+- Estimate the source wrap width from the paste only: `effectiveWidth = longest row width`
+  (trimEnd). Terminal rows cannot exceed the source width, so wrapped rows sit near the
+  longest row. Drop the `wrapWidth` parameter entirely and the editor's terminal-columns
+  argument (simpler API, smaller editor diff).
+- Slack: `max(12, floor(effectiveWidth / 5))` instead of fixed 12, so a row broken before
+  a long path/URL token still joins (182 cols -> 36). Keep the 40-column floor.
+- Keep every other guard (1-2 space continuation, block/list/fence/code endings).
+- Tests: replace the width-dependent cases; add the regression "rows copied from a
+  narrower pane (182) join when pasted into a wider terminal (204)" via the Editor at 204
+  cols; add a row broken ~30 cols early before a long path that still joins; keep all
+  preservation controls passing. Then rebuild with `npm run build:offline` (the installed
+  symlink picks it up), rerun tests + `npm run check`, commit, push, and ask the operator
+  to repeat the smoke test in a NEW pi process.
+
 ## Probe verdicts
 
 - Ghostty (204 cols): PROMOTE (criteria v1). Stage 1 one line (14:11); after row-2 redraw still one line (14:13). Evidence: operator pastes into the unpatched 1.3.0 session, which cannot hide newlines.
@@ -166,3 +194,7 @@ model type/test drift. Future upstream syncing needs separate attention to this 
 - U3 build succeeded with `npm run build:offline` (same package build sequence, without fetching live model catalogs); produced 80 bundled files, 8.8 MiB. Bundle chunk `chunk-JNQ6VHWV.js` contains unwrapSoftWrappedPaste. No tracked generated catalog/dependency edits.
 - U3 installed: `current-version` is `1.3.0-personal`, symlink resolves to `/home/remote3/dev/pi/packages/coding-agent/dist/bundle/cli.js`, launcher `pi --version` exits 0 with `1.3.0` (package version unchanged). Original release's 14919 file checksums match `/tmp/pi-1.3.0-before.sha256` exactly. Waiting for the operator paste smoke test in a newly launched pi; not yet verified.
 - Integration precheck passed: `npm run check` clean, editor/paste tests pass, probe tests pass. U4 not started: U2/U3 still require manual evidence. No completion signal until manual evidence and final integration/push are verified.
+- Operator supplied stage-2 results; U2 verified. Ghostty promote, herdr hold. Details above.
+- Operator rejected U3 smoke test: retained newlines. Marked U3 failed and reopened U1; failure evidence supersedes the earlier U1 implementation's adequacy for this workflow.
+- Revision 2 implemented by GPT-6.1-sol following Opus design: pure paste-derived width, slack max(12, floor(width/5)), no terminal-width argument. Structural/code guards unchanged. Negative control: 3 new regression cases fail on prior code (20 pass / 3 fail); revised code passes all 23 paste-specific tests and all 215 combined editor/paste tests (1384.079492ms). Re-run after formatter also passed. `npm run check` clean (no fixes on repeat).
+- Revision 2 rebuilt using `npm run build:offline`; installed personal symlink automatically uses the new bundle. Bundle `chunk-AZNRMYQR.js` contains one-argument helper, floor(sourceWidth/5), and the updated editor call. Launcher `pi --version` exits 0; current-version is 1.3.0-personal; original release's 14919 files still match the baseline checksum listing. (An initial checksum attempt was run in the checkout by mistake and failed; corrected by running in releases/1.3.0, where all checks passed.) Existing pi processes do not reload the rebuilt code; a new process is required. U3 remains unverified until operator repeats the paste smoke test.

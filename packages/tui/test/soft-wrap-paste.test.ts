@@ -33,55 +33,67 @@ function paste(editor: Editor, text: string): void {
 // workaround recovers likely wraps on input; it does not change terminal copy.
 describe("unwrapSoftWrappedPaste", () => {
 	it("joins the operator's pi sample with one-space continuation margins", () => {
-		assert.equal(unwrapSoftWrappedPaste(piRows.join("\n"), 105), piRows.map((line) => line.trim()).join(" "));
+		assert.equal(unwrapSoftWrappedPaste(piRows.join("\n")), piRows.map((line) => line.trim()).join(" "));
 	});
 
 	it("joins the operator's Codex sample without merging its numbered and nested bullet items", () => {
 		const expected = `${codexRows[0]} ${codexRows[1]!.trim()}\n${codexRows[2]} ${codexRows[3]!.trim()} ${codexRows[4]!.trim()}`;
-		assert.equal(unwrapSoftWrappedPaste(codexRows.join("\n"), 170), expected);
+		assert.equal(unwrapSoftWrappedPaste(codexRows.join("\n")), expected);
 	});
 
-	it("uses the widest copied row when the source terminal was wider", () => {
-		assert.equal(unwrapSoftWrappedPaste(codexRows.join("\n"), 80), unwrapSoftWrappedPaste(codexRows.join("\n"), 170));
+	it("joins rows broken early before long path tokens", () => {
+		const rows = [
+			"This paragraph wraps before a long path, leaving some unused space at the end of the preceding row. "
+				.repeat(2)
+				.slice(0, 152)
+				.trimEnd(),
+			` /home/remote3/dev/pi/packages/tui/src/components/soft-wrap-paste.ts ${"with more prose after the path. ".repeat(4)}`.slice(
+				0,
+				182,
+			),
+			" and this is the end of the paragraph.",
+		];
+		assert.equal(rows[1]!.length, 182);
+		assert.equal(unwrapSoftWrappedPaste(rows.join("\n")), rows.map((line) => line.trim()).join(" "));
 	});
 
 	it("preserves short lines, short indented messages, and single-line text exactly", () => {
 		for (const text of ["hi\nthere", " hello\n there\n", "    untouched indentation", "\n\n", ""]) {
-			assert.equal(unwrapSoftWrappedPaste(text, 80), text);
+			assert.equal(unwrapSoftWrappedPaste(text), text);
 		}
 	});
 
 	it("does not use accumulated paragraph length as evidence for a later short boundary", () => {
 		const text = `${fullRow}\n short continuation.\n a separate instruction`;
-		assert.equal(unwrapSoftWrappedPaste(text, 80), `${fullRow} short continuation.\n a separate instruction`);
+		assert.equal(unwrapSoftWrappedPaste(text), `${fullRow} short continuation.\n a separate instruction`);
 	});
 
 	it("requires a continuation margin rather than flattening arbitrary full-width lines", () => {
 		const text = `${fullRow}\nThis line has no terminal margin.`;
-		assert.equal(unwrapSoftWrappedPaste(text, 80), text);
+		assert.equal(unwrapSoftWrappedPaste(text), text);
 	});
 
 	it("preserves new bullet and numbered items even after full-width rows", () => {
 		const text = `- ${fullRow}\n - another item\n 1. numbered item\n + final item`;
-		assert.equal(unwrapSoftWrappedPaste(text, 80), text);
+		assert.equal(unwrapSoftWrappedPaste(text), text);
 	});
 
 	it("preserves paragraph boundaries, including blank rows with padding", () => {
 		const text = `${fullRow}\n     \n new paragraph\n`;
-		assert.equal(unwrapSoftWrappedPaste(text, 80), text);
+		assert.equal(unwrapSoftWrappedPaste(text), text);
 	});
 
 	it("preserves backtick and tilde fences, even with longer text and shorter inner fences", () => {
 		for (const marker of ["````", "~~~~"]) {
 			const text = ` ${marker}ts\n ${fullRow}\n ${marker.slice(0, 3)}\n ${fullRow}\n code continuation\n ${marker}\n`;
-			assert.equal(unwrapSoftWrappedPaste(text, 80), text);
+			assert.equal(unwrapSoftWrappedPaste(text), text);
 		}
 	});
 
 	it("preserves indented code and does not join following shallow text onto it", () => {
 		for (const indent of ["    ", "\t"]) {
 			const text = `${indent}${fullRow}\n${indent}return value;\n ordinary prose`;
-			assert.equal(unwrapSoftWrappedPaste(text, 80), text);
+			assert.equal(unwrapSoftWrappedPaste(text), text);
 		}
 	});
 
@@ -93,39 +105,60 @@ describe("unwrapSoftWrappedPaste", () => {
 			...["{", "[", "(", ";", "=>"].map((ending) => `${fullRow}${ending}\n  next instruction`),
 			...["}", "]", ")"].map((start) => `${fullRow}\n  ${start}`),
 		]) {
-			assert.equal(unwrapSoftWrappedPaste(text, 80), text);
+			assert.equal(unwrapSoftWrappedPaste(text), text);
 		}
 	});
 
 	it("preserves table rows, headings, quotes, and separators on either side", () => {
 		for (const row of [` | ${fullRow} |`, ` # ${fullRow}`, ` > ${fullRow}`, ` ${"-".repeat(79)}`]) {
-			assert.equal(unwrapSoftWrappedPaste(`${row}\n continuation`, 80), `${row}\n continuation`);
-			assert.equal(unwrapSoftWrappedPaste(`${fullRow}\n${row}`, 80), `${fullRow}\n${row}`);
+			assert.equal(unwrapSoftWrappedPaste(`${row}\n continuation`), `${row}\n continuation`);
+			assert.equal(unwrapSoftWrappedPaste(`${fullRow}\n${row}`), `${fullRow}\n${row}`);
 		}
 	});
 
 	it("removes padding only at joined boundaries and keeps the final newline", () => {
 		const text = `${fullRow}   \n continuation   \n`;
-		assert.equal(unwrapSoftWrappedPaste(text, 80), `${fullRow} continuation   \n`);
+		assert.equal(unwrapSoftWrappedPaste(text), `${fullRow} continuation   \n`);
 	});
 
-	it("uses terminal column width for CJK and joins CJK characters without a space", () => {
+	it("measures CJK display columns and joins CJK characters without a space", () => {
 		const row = "이".repeat(39);
-		assert.equal(unwrapSoftWrappedPaste(`${row}\n 어진문장`, 80), `${row}어진문장`);
+		assert.equal(unwrapSoftWrappedPaste(`${row}\n 어진문장`), `${row}어진문장`);
 	});
 
 	it("keeps a separator for Latin-to-CJK and CJK-to-Latin word boundaries", () => {
-		assert.equal(unwrapSoftWrappedPaste(`${fullRow}\n 다음`, 80), `${fullRow} 다음`);
+		assert.equal(unwrapSoftWrappedPaste(`${fullRow}\n 다음`), `${fullRow} 다음`);
 		const row = "이".repeat(39);
-		assert.equal(unwrapSoftWrappedPaste(`${row}\n next`, 80), `${row} next`);
+		assert.equal(unwrapSoftWrappedPaste(`${row}\n next`), `${row} next`);
 	});
 
-	it("does not infer soft wrapping from tiny viewport widths", () => {
-		assert.equal(unwrapSoftWrappedPaste("hello\n world", 5), "hello\n world");
+	it("does not infer soft wrapping from very short copied rows", () => {
+		assert.equal(unwrapSoftWrappedPaste("hello\n world"), "hello\n world");
 	});
 });
 
 describe("Editor soft-wrap paste integration", () => {
+	it("joins the pi fixture independently of the destination terminal width", () => {
+		for (const columns of [80, 182, 204]) {
+			const editor = createEditor(columns);
+			paste(editor, piRows.join("\n"));
+			assert.equal(editor.getText(), piRows.map((line) => line.trim()).join(" "), `destination: ${columns} columns`);
+		}
+	});
+
+	it("joins 182-column source rows when pasted into a 204-column terminal", () => {
+		const editor = createEditor(204);
+		const rows = [
+			"This is ordinary prose copied from a narrower terminal pane. ".repeat(4).slice(0, 182),
+			` ${"This is another source row at the same width. ".repeat(5)}`.slice(0, 182),
+			" and this is the last short continuation.",
+		];
+		assert.equal(rows[0]!.length, 182);
+		assert.equal(rows[1]!.length, 182);
+		paste(editor, rows.join("\n"));
+		assert.equal(editor.getText(), rows.map((line) => line.trim()).join(" "));
+	});
+
 	it("normalizes line endings and unwraps the pi fixture through bracketed paste", () => {
 		const editor = createEditor(105);
 		paste(editor, piRows.join("\r\n"));

@@ -1286,7 +1286,7 @@ export class Editor implements Component, Focusable {
 			.filter((char) => char === "\n" || char.charCodeAt(0) >= 32)
 			.join("");
 
-		filteredText = unwrapSoftWrappedPaste(filteredText, this.tui.terminal.columns);
+		filteredText = unwrapSoftWrappedPaste(filteredText);
 
 		// If pasting a file path (starts with /, ~, or .) and the character before
 		// the cursor is a word character, prepend a space for better readability
