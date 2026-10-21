@@ -34,6 +34,20 @@ plain text editor (not pi) and reports: one line or not, and visible extra space
   d3 `\x1b[M\x1b[L` (delete+insert line) before rewriting. Report per variant.
 Gate per contract condition 1.
 
+Executor brief for U1 (gpt-6.1-sol; Opus supervises):
+- Model the new script on `scripts/personal/soft-wrap-probe.mjs` (pure `createProbe(columns)`
+  returning byte strings per stage, thin interactive `main()`); keep v1 untouched.
+- Self-test `scripts/personal/soft-wrap-probe-v2.test.mjs` with `@xterm/headless` (already a
+  tui dependency; import it the way `packages/tui/test/virtual-terminal.ts` does): feed each
+  stage, assert row wrap flags (`isWrapped`) and joined text match the intended design
+  (e.g. (a) continuation rows wrapped; (d) after redraw, the row after P is not wrapped in
+  xterm for d2/d3). xterm is only a script check, not the Ghostty/herdr verdict.
+- Number every case on screen and print a one-line instruction per stage; keep total
+  screen height <= 30 rows at 80+ cols so the operator can copy without scrolling.
+- Hand the operator exact steps and a fill-in report template (case -> one line? extra
+  spaces? wrong join?) for Ghostty and herdr; then `amber-mark hold - U1 - external:
+  operator probe copy results` and stop.
+
 ### U2 renderer (design by Opus; executor fills details)
 - Markdown wrap loop marks each wrapped row that is followed by another row of the same
   source line with a zero-width marker at its end (after padding/background).
@@ -61,6 +75,44 @@ and the commit SHA. Save output to `docs/2026-10-21-soft-wrap-output-review.md`.
 
 ## Probe v2 verdicts
 
-(pending)
+Operator results pending. Script self-checks are not Ghostty/herdr copy evidence.
+
+Run in Ghostty alone, then herdr inside Ghostty (80+ columns, 16+ rows):
+
+```sh
+node /home/remote3/dev/pi/scripts/personal/soft-wrap-probe-v2.mjs
+```
+
+Ten screens, Enter advances; Ctrl+C cancels. Do not resize. Copy to TextEdit or another
+plain editor, never into pi (paste normalization hides the breaks). Select from
+`CASE_P_BEGIN` through `CASE_P_END` for A/B/C. For each D screen, select from
+`CASE_P_BEGIN` through `CASE_Q_END`; P should be one logical line and Q a separate line.
+Ignore visual wrapping in the receiving editor; check actual line breaks.
+
+Report per environment:
+
+```text
+Ghostty / herdr (choose):
+A: P=one line/multiple lines; join spaces=normal/extra
+B: P=one line/multiple lines; join spaces=normal/extra
+C before: P=one line/multiple lines
+C after:  P=one line/multiple lines; join spaces=normal/extra
+D1 before: P joined internally=yes/no; Q separate=yes/no
+D1 after: shortened P and Q separate=yes/no
+D2 before: P joined internally=yes/no; Q separate=yes/no
+D2 after: shortened P and Q separate=yes/no
+D3 before: P joined internally=yes/no; Q separate=yes/no
+D3 after: shortened P and Q separate=yes/no
+```
+
+D1 uses ordinary erase/rewrite; D2 writes the full width before CR/LF; D3 deletes and
+inserts a row before rewriting. These are candidates; no claim is made about their
+actual Ghostty/herdr behavior until operator copy results arrive.
+
+Supervision note (Opus): Markdown pads every row to full width today, so D2 is closest to
+how pi itself would rewrite a now-hard row; D1 is the unpadded control, D3 the
+heavier reset. Script reviewed: stage bytes match the U1 design (a)-(d).
 
 ## Progress log
+- 2026-10-21 17:27 approval: operator said "Go ahead" to the scope report.
+- U1 implemented by GPT-6.1-sol: new `soft-wrap-probe-v2.mjs` with 10 deterministic stages and TTY/resize guards; v1 unchanged. New xterm self-tests at 80, 181, and 204 columns verify visual row text, wrap flags, real written vs erased gap cells, and hard P/Q separation after all three candidate shrink redraws. New+old probe tests: 8 pass / 0 fail (153.994055ms, verified). `npm run check` passes clean, no formatting fixes (verified). xterm results validate only the script, not terminal clipboard semantics. No renderer change or personal-build replacement yet.
