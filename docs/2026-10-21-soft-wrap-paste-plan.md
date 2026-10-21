@@ -116,8 +116,9 @@ U3: check `node_modules` presence; `npm install --ignore-scripts`; `npm run buil
 
 ## Probe verdicts
 
-- Ghostty: pending operator test (not a verdict).
-- herdr in Ghostty: pending operator test (not a verdict).
+- Ghostty (204 cols): PROMOTE (criteria v1). Stage 1 one line (14:11); after row-2 redraw still one line (14:13). Evidence: operator pastes into the unpatched 1.3.0 session, which cannot hide newlines.
+- herdr in Ghostty (181 cols): HOLD (criteria v1). Stage 1 one line (14:12); after redraw a newline appears at sample index 362 (`termin|al`), exactly the boundary between the rewritten row 2 and row 3 (verified by recomputing the probe sample at 181 cols). The row 1->2 boundary survived. Reading: herdr drops the wrap flag of a row that is rewritten to full width and then left by cursor motion instead of autowrap.
+- Design hint for a later output-side run (not this run): redraw a whole logical line contiguously from its first row so every row boundary is crossed by autowrap; never end a rewritten full-width row with cursor motion.
 
 ## Operator steps (manual evidence still required)
 
