@@ -116,8 +116,52 @@ U3: check `node_modules` presence; `npm install --ignore-scripts`; `npm run buil
 
 ## Probe verdicts
 
-- Ghostty:
-- herdr in Ghostty:
+- Ghostty: pending operator test (not a verdict).
+- herdr in Ghostty: pending operator test (not a verdict).
+
+## Operator steps (manual evidence still required)
+
+Run in a shell on this host from each environment (Ghostty alone, then herdr inside Ghostty):
+
+```sh
+node /home/remote3/dev/pi/scripts/personal/soft-wrap-probe.mjs
+```
+
+1. Select only `SOFT_WRAP_BEGIN` through `SOFT_WRAP_END`. Copy to a plain text editor
+   (outside pi) and check whether actual newlines appear (not the editor's visual wrapping).
+2. Press Enter in the probe shell; it redraws row 2. Copy the same sample again to the
+   plain editor and check actual newlines again. Press Enter to exit. Do not resize.
+3. Report `Ghostty: before=one line/multiple lines, after=one line/multiple lines` and
+   the same for `Ghostty+herdr`. Checking by pasting into pi is invalid because the new
+   paste normalization could hide the very problem the probe measures.
+4. Open a NEW `pi` process (the running session still uses the old binary). Paste a long
+   wrapped pi/Codex paragraph into its editor. Check the logical text using Ctrl+G in an
+   external editor, or submit and inspect the saved user-message content. Visual wrapping
+   inside pi's editor does not mean the newline is still stored. Preserve a separate
+   pasted fenced code block and a short two-line message as controls.
+5. The command still prints version `1.3.0` (no package version changes). The personal
+   installation is identified by `current-version = 1.3.0-personal` and its symlink target.
+
+Rollback if needed:
+
+```sh
+printf '1.3.0\n' > ~/.pi/agent/install/current-version
+```
+
+Build maintenance for this checkout:
+
+```sh
+npm run build:offline
+```
+
+The offline build uses the validated catalog snapshot copied from the original 1.3.0
+installation. `npm run build` would refresh live catalogs and may introduce unrelated
+model type/test drift. Future upstream syncing needs separate attention to this snapshot.
 
 ## Progress log
 - 2026-10-21 13:58 approval: operator said "좋아. 문제 해결해보자. 진행하자. 진행은 이전과 같이 gpt-6.1-sol로 진행하고 opus는 설계 및 감독이야."
+- U1 verified after Opus guard revision: 213 tests passed, 0 failed (1395.298636ms), `npm run check` clean. Commit 919e241dc. One heuristic revision used after first passing set (budget 3).
+- U2 script implemented with non-TTY/resize guards, fixed-width ASCII sample and single-row erase/rewrite. Emulator/CLI tests: 3 passed, 0 failed (122.629563ms). This validates the script only, not Ghostty copy semantics. Waiting for operator's before/after copy observations in both environments. Zero probe revisions so far.
+- U3 build succeeded with `npm run build:offline` (same package build sequence, without fetching live model catalogs); produced 80 bundled files, 8.8 MiB. Bundle chunk `chunk-JNQ6VHWV.js` contains unwrapSoftWrappedPaste. No tracked generated catalog/dependency edits.
+- U3 installed: `current-version` is `1.3.0-personal`, symlink resolves to `/home/remote3/dev/pi/packages/coding-agent/dist/bundle/cli.js`, launcher `pi --version` exits 0 with `1.3.0` (package version unchanged). Original release's 14919 file checksums match `/tmp/pi-1.3.0-before.sha256` exactly. Waiting for the operator paste smoke test in a newly launched pi; not yet verified.
+- Integration precheck passed: `npm run check` clean, editor/paste tests pass, probe tests pass. U4 not started: U2/U3 still require manual evidence. No completion signal until manual evidence and final integration/push are verified.
