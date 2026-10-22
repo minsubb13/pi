@@ -18,6 +18,12 @@ import {
 	type ScrollbarGeometry,
 } from "./layout.ts";
 import { getLayoutNode } from "./layout-node.ts";
+import {
+	areSoftWrapMarkersEnabled,
+	SOFT_WRAP_MARKER,
+	SOFT_WRAP_SPACE_MARKER,
+	setSoftWrapMarkersEnabled,
+} from "./soft-wrap-output.ts";
 import type { Terminal } from "./terminal.ts";
 import {
 	deleteAllKittyImages,
@@ -203,6 +209,7 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
 	readonly mode = "fullscreen" as const;
 	readonly [VIEWPORT_TUI] = true as const;
 	private previousScreen: string[] = [];
+	private previousSelectionScreen: string[] = [];
 	private lastDocument: string[] = [];
 	private previousScreenWidth = 0;
 	private previousScreenHeight = 0;
@@ -494,6 +501,7 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
 
 	protected override resetRenderState(): void {
 		this.previousScreen = [];
+		this.previousSelectionScreen = [];
 		this.previousScreenWidth = 0;
 		this.previousScreenHeight = 0;
 		this.currentLayout = undefined;
@@ -1450,24 +1458,39 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
 	private getActiveSelectionText(): string | undefined {
 		const selection = this.getSelectionBounds();
 		if (!selection) return undefined;
-		let sourceLines: readonly string[] = this.previousScreen;
+		let sourceLines: readonly string[] = this.previousSelectionScreen;
 		if (selection.start.scrollView) {
 			if (!this.currentLayout) return undefined;
 			const box = getScrollViewBox(this.currentLayout, selection.start.scrollView);
 			if (!box?.scrollContentLines) return undefined;
 			sourceLines = box.scrollContentLines;
 		}
-		const lines: string[] = [];
+		let text = "";
 		for (let row = selection.start.row; row <= selection.end.row; row++) {
 			const line = sourceLines[row] ?? "";
 			const columns = this.getSelectionColumns(line, row, selection);
-			lines.push(
-				stripTerminalSequences(
-					sliceByColumn(line, columns.start, Math.max(0, columns.end - columns.start), true),
-				).trimEnd(),
-			);
+			let selected = stripTerminalSequences(
+				sliceByColumn(line, columns.start, Math.max(0, columns.end - columns.start), true),
+			).trimEnd();
+			if (row > selection.start.row) {
+				const previous = sourceLines[row - 1] ?? "";
+				// Raw ScrollView rows and unobscured screen rows retain Markdown's
+				// wrap metadata. Overlay selections keep hard row boundaries.
+				const continued =
+					process.env.PI_TUI_SOFT_WRAP !== "0" &&
+					previous.endsWith(SOFT_WRAP_MARKER) &&
+					!isImageLine(previous) &&
+					!isImageLine(line) &&
+					stripTerminalSequences(line).trim().length > 0;
+				if (continued) {
+					selected = selected.trimStart();
+					if (selected && text && previous.includes(SOFT_WRAP_SPACE_MARKER)) text += " ";
+				} else {
+					text += "\n";
+				}
+			}
+			text += selected;
 		}
-		const text = lines.join("\n");
 		return text.length === 0 ? undefined : text;
 	}
 
@@ -1692,9 +1715,16 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
 		const width = Math.max(1, this.terminal.columns);
 		const height = Math.max(1, this.terminal.rows);
 		const root = this.layoutRoot ?? this.implicitScrollView;
-		let nextLayout = renderLayoutFrame(root, width, height, () => this.requestRender());
-		if (this.refreshSearch(nextLayout)) {
+		const previousMarkerContext = areSoftWrapMarkersEnabled();
+		let nextLayout: LayoutFrame;
+		setSoftWrapMarkersEnabled(process.env.PI_TUI_SOFT_WRAP !== "0");
+		try {
 			nextLayout = renderLayoutFrame(root, width, height, () => this.requestRender());
+			if (this.refreshSearch(nextLayout)) {
+				nextLayout = renderLayoutFrame(root, width, height, () => this.requestRender());
+			}
+		} finally {
+			setSoftWrapMarkersEnabled(previousMarkerContext);
 		}
 		// Resolve fake cursors before highlighting and compositing, which only track SGR codes
 		let screen = this.resolveFakeCursors(nextLayout.lines.map((line) => line.replace(OSC133_ZONE_PREFIX, "")));
@@ -1706,6 +1736,13 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
 		screen = this.compositeFlashes(screen, width, height);
 
 		const cursorPos = this.extractCursorPosition(screen, height);
+		// Screen selections use the same normalized/clamped rows as before, plus
+		// metadata only where compositing has preserved an unobscured wrap boundary.
+		const screenWrapMarkers = screen.map((line) =>
+			!this.hasOverlay() && visibleWidth(line) <= width && line.endsWith(SOFT_WRAP_MARKER)
+				? (line.includes(SOFT_WRAP_SPACE_MARKER) ? SOFT_WRAP_SPACE_MARKER : "") + SOFT_WRAP_MARKER
+				: "",
+		);
 		screen = this.applyLineResets(screen).map((line) => {
 			if (isImageLine(line) || visibleWidth(line) <= width) return line;
 			return sliceByColumn(line, 0, width, true);
@@ -1790,6 +1827,7 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
 		this.terminal.write(buffer);
 
 		this.previousScreen = screen;
+		this.previousSelectionScreen = screen.map((line, row) => line + screenWrapMarkers[row]);
 		this.previousScreenWidth = width;
 		this.previousScreenHeight = height;
 		this.currentLayout = nextLayout;

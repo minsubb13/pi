@@ -3,9 +3,11 @@ import { visibleWidth } from "./utils.ts";
 
 /** A continued visual row; extracted before any bytes reach the terminal. */
 export const SOFT_WRAP_MARKER = "\x1b_pi:w\x07";
+/** Paired with SOFT_WRAP_MARKER when copying the join needs one word-separating space. */
+export const SOFT_WRAP_SPACE_MARKER = "\x1b_pi:ws\x07";
 
-// Only enabled while the regular renderer synchronously renders its component tree.
-// Standalone Markdown consumers and the fullscreen renderer keep ordinary hard rows.
+// Only enabled while a renderer synchronously renders its component tree.
+// Standalone Markdown consumers keep ordinary hard rows.
 let softWrapMarkersEnabled = false;
 
 export function setSoftWrapMarkersEnabled(enabled: boolean): void {
@@ -16,12 +18,16 @@ export function areSoftWrapMarkersEnabled(): boolean {
 	return softWrapMarkersEnabled;
 }
 
+export function stripSoftWrapMarkers(line: string): string {
+	return line.replaceAll(SOFT_WRAP_MARKER, "").replaceAll(SOFT_WRAP_SPACE_MARKER, "");
+}
+
 export function extractSoftWrapRows(
 	rows: string[],
 	width: number,
 	allow: boolean,
 ): { lines: string[]; continued: boolean[] } {
-	const lines = rows.map((line) => line.replaceAll(SOFT_WRAP_MARKER, ""));
+	const lines = rows.map(stripSoftWrapMarkers);
 	const continued = rows.map(
 		(line, index) =>
 			allow &&

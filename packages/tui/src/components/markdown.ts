@@ -1,7 +1,7 @@
 import { Marked, type Token, Tokenizer, type TokenizerExtension, type Tokens } from "marked";
 import markedCjkFriendly from "marked-cjk-friendly";
 import { renderLatex } from "../latex.ts";
-import { areSoftWrapMarkersEnabled, SOFT_WRAP_MARKER } from "../soft-wrap-output.ts";
+import { areSoftWrapMarkersEnabled, SOFT_WRAP_MARKER, SOFT_WRAP_SPACE_MARKER } from "../soft-wrap-output.ts";
 import { getCapabilities, hyperlink, isImageLine } from "../terminal-image.ts";
 import type { Component } from "../tui.ts";
 import { applyBackgroundToLine, flattenLines, visibleWidth, wrapTextWithAnsi } from "../utils.ts";
@@ -304,7 +304,7 @@ export class Markdown implements Component {
 
 	render(width: number): string[] {
 		const softWrap = areSoftWrapMarkersEnabled();
-		// Check cache, including the regular renderer's continuation-marker context.
+		// Check cache, including the renderer's continuation-marker context.
 		if (
 			this.cachedLines &&
 			this.cachedText === this.text &&
@@ -358,17 +358,21 @@ export class Markdown implements Component {
 		// Wrap lines (NO padding, NO background yet)
 		const wrappedLines: string[] = [];
 		const continued: boolean[] = [];
+		const joinSpaces: boolean[] = [];
 		for (let index = 0; index < renderedLines.length; index++) {
 			const line = renderedLines[index];
 			if (isImageLine(line)) {
 				wrappedLines.push(line);
 				continued.push(false);
+				joinSpaces.push(false);
 			} else {
 				const rowContinuations: boolean[] = [];
-				const rows = wrapTextWithAnsi(line, contentWidth, rowContinuations);
+				const rowJoinSpaces: boolean[] = [];
+				const rows = wrapTextWithAnsi(line, contentWidth, rowContinuations, softWrap ? rowJoinSpaces : undefined);
 				for (let row = 0; row < rows.length; row++) {
 					wrappedLines.push(rows[row]);
 					continued.push(softWrap && paragraphLines[index] && rowContinuations[row]);
+					joinSpaces.push(rowJoinSpaces[row] ?? false);
 				}
 			}
 		}
@@ -387,7 +391,7 @@ export class Markdown implements Component {
 			}
 
 			const lineWithMargins = leftMargin + line + rightMargin;
-			const marker = continued[index] ? SOFT_WRAP_MARKER : "";
+			const marker = continued[index] ? (joinSpaces[index] ? SOFT_WRAP_SPACE_MARKER : "") + SOFT_WRAP_MARKER : "";
 
 			if (bgFn) {
 				contentLines.push(applyBackgroundToLine(lineWithMargins, width, bgFn) + marker);

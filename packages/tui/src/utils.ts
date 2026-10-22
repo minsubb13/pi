@@ -897,10 +897,11 @@ export function flattenLines(lines: readonly string[]): void {
 	for (const line of lines) Number(line);
 }
 
-/** Optionally append a continuation flag per returned row; literal newlines always end a logical line. */
-export function wrapTextWithAnsi(text: string, width: number, continued?: boolean[]): string[] {
+/** Optionally record continuations and whether their wrap boundary consumed a space. Literal newlines stay hard. */
+export function wrapTextWithAnsi(text: string, width: number, continued?: boolean[], joinSpaces?: boolean[]): string[] {
 	if (!text) {
 		continued?.push(false);
+		joinSpaces?.push(false);
 		return [""];
 	}
 
@@ -913,7 +914,7 @@ export function wrapTextWithAnsi(text: string, width: number, continued?: boolea
 	for (const inputLine of inputLines) {
 		// Prepend active ANSI codes from previous lines (except for first line)
 		const prefix = result.length > 0 ? tracker.getActiveCodes() : "";
-		const wrappedLines = wrapSingleLine(prefix + inputLine, width);
+		const wrappedLines = wrapSingleLine(prefix + inputLine, width, joinSpaces);
 		for (let index = 0; index < wrappedLines.length; index++) {
 			result.push(wrappedLines[index]);
 			continued?.push(index < wrappedLines.length - 1);
@@ -925,13 +926,15 @@ export function wrapTextWithAnsi(text: string, width: number, continued?: boolea
 	return result.length > 0 ? result : [""];
 }
 
-function wrapSingleLine(line: string, width: number): string[] {
+function wrapSingleLine(line: string, width: number, joinSpaces?: boolean[]): string[] {
 	if (!line) {
+		joinSpaces?.push(false);
 		return [""];
 	}
 
 	const visibleLength = visibleWidth(line);
 	if (visibleLength <= width) {
+		joinSpaces?.push(false);
 		return [line];
 	}
 
@@ -949,6 +952,7 @@ function wrapSingleLine(line: string, width: number): string[] {
 		// Token itself is too long - break it character by character
 		if (tokenVisibleLength > width && !isWhitespace) {
 			if (currentLine) {
+				joinSpaces?.push(stripTerminalSequences(currentLine).endsWith(" "));
 				// Add specific reset for underline only (preserves background)
 				const lineEndReset = tracker.getLineEndReset();
 				if (lineEndReset) {
@@ -963,6 +967,7 @@ function wrapSingleLine(line: string, width: number): string[] {
 			const broken = breakLongWord(token, width, tracker);
 			for (let i = 0; i < broken.length - 1; i++) {
 				wrapped.push(broken[i]!);
+				joinSpaces?.push(false);
 			}
 			currentLine = broken[broken.length - 1];
 			currentVisibleLength = visibleWidth(currentLine);
@@ -973,6 +978,9 @@ function wrapSingleLine(line: string, width: number): string[] {
 		const totalNeeded = currentVisibleLength + tokenVisibleLength;
 
 		if (totalNeeded > width && currentVisibleLength > 0) {
+			joinSpaces?.push(
+				stripTerminalSequences(currentLine).endsWith(" ") || stripTerminalSequences(token).startsWith(" "),
+			);
 			// Trim trailing whitespace, then add underline reset (not full reset, to preserve background)
 			let lineToWrap = currentLine.trimEnd();
 			const lineEndReset = tracker.getLineEndReset();
@@ -1002,6 +1010,11 @@ function wrapSingleLine(line: string, width: number): string[] {
 		wrapped.push(currentLine);
 	}
 
+	// The final row never joins the next input line, including a whitespace-only tail.
+	if (joinSpaces) {
+		if (wrapped.length === 0 || currentLine) joinSpaces.push(false);
+		else joinSpaces[joinSpaces.length - 1] = false;
+	}
 	// Trailing whitespace can cause lines to exceed the requested width
 	return wrapped.length > 0 ? wrapped.map((line) => line.trimEnd()) : [""];
 }

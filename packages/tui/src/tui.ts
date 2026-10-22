@@ -4,7 +4,7 @@
 
 import { performance } from "node:perf_hooks";
 import { isKeyRelease, matchesKey } from "./keys.ts";
-import { SOFT_WRAP_MARKER } from "./soft-wrap-output.ts";
+import { stripSoftWrapMarkers } from "./soft-wrap-output.ts";
 import type { Terminal } from "./terminal.ts";
 import {
 	parseOscColorResponse,
@@ -1451,7 +1451,7 @@ export abstract class TuiBase extends Container implements TUI {
 	protected applyLineResets(lines: string[]): string[] {
 		const reset = SEGMENT_RESET;
 		for (let i = 0; i < lines.length; i++) {
-			const line = lines[i].replaceAll(SOFT_WRAP_MARKER, "");
+			const line = stripSoftWrapMarkers(lines[i]);
 			lines[i] = line;
 			if (!isImageLine(line)) {
 				lines[i] = normalizeTerminalOutput(line) + reset;
