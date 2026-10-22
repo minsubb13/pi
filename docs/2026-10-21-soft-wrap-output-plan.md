@@ -61,6 +61,57 @@ Executor brief for U1 (gpt-6.1-sol; Opus supervises):
 - Rows written as hard ends use the probe-(d) clearing method.
 - Track continued flags alongside `previousLines` (render state capture/restore too).
 
+Operator decision 2026-10-21 ("1번으로할까" to the row-shape question): keep today's
+word-wrapped rows with padding; accept extra spaces at joins when copying. No char wrap.
+
+Executor brief for U2 (gpt-6.1-sol; Opus design, supersedes the sketch above where it differs):
+- `packages/tui/src/soft-wrap-output.ts` (new):
+  - `SOFT_WRAP_MARKER = "\x1b_pi:w\x07"` (zero-width APC; `visibleWidth` already skips APC).
+  - Module flag + `setSoftWrapMarkersEnabled(enabled)` / `areSoftWrapMarkersEnabled()`.
+    Markdown emits markers only when the flag is on. `TuiMainScreen` turns it on (when
+    `process.env.PI_TUI_SOFT_WRAP !== "0"`) as part of its start/first render, and off in stop.
+    Reason: non-TUI consumers print Markdown output raw (for example
+    `packages/coding-agent/src/package-manager-cli.ts:666` self-update note via console.log),
+    and fullscreen mode is out of scope. With the flag off, Markdown output is byte-identical
+    to today.
+  - `extractSoftWrapRows(lines, width, allow)` -> `{ lines, continued }`: strips every marker
+    from every row; `continued[i]` is true only when `allow`, the row carried a marker,
+    `visibleWidth(stripped) === width`, `i < lines.length - 1`, and neither row i nor i+1 is an
+    image line.
+- `markdown.ts` render loop (`for (const line of renderedLines)` + `wrapTextWithAnsi`, ~331):
+  when markers are enabled, record which wrapped rows are followed by another row of the same
+  source line, and append the marker after margins/background/padding. Do not mark quote rows
+  (their `│` prefix would be copied), list-item wrapping inside `renderToken`, or image lines.
+  Include the flag in the render cache key.
+- `tui.ts` `applyLineResets`: strip markers from every row (safety net for alt-screen and
+  overlays). Do not change anything else in the base class.
+- `tui-main-screen.ts` `doRender`, after overlay compositing and cursor extraction, before
+  `applyLineResets`: `extractSoftWrapRows(newLines, width, !this.hasOverlayEntries)`.
+  Keep `previousContinued` next to `previousLines` (include in capture/restore/reset state).
+  - Row separator in full render and differential loops: write nothing between row i and i+1
+    when `continued[i]`; otherwise `\r\n` as today. Do not write `\x1b[2K` before a row that
+    continues the previous row (it is full width; avoid touching the pending-wrap state).
+  - Differential range: treat a change of `continued[i]` as a change of row i. Expand
+    `firstChanged` back while the row above is joined to it in the previous or new frame;
+    expand `lastChanged` forward to the last row of its logical line in the new frame.
+    If the expanded first row is above the previous viewport, use the existing full redraw.
+  - Stale join: before rewriting row i in the differential loop, if row i or row i-1 was
+    joined in the previous frame and that join is gone in the new frame, write
+    `\x1b[M\x1b[L` (delete+insert line) instead of `\x1b[2K`. Because this pushes out the
+    screen's bottom row, whenever it is used set the render end to `newLines.length - 1`
+    so every remaining content row on screen is rewritten.
+  - With markers disabled (env `PI_TUI_SOFT_WRAP=0`), nothing is continued and every write
+    must be byte-identical to today's algorithm.
+- Tests `packages/tui/test/soft-wrap-output.test.ts` (node:test + `test/virtual-terminal.ts`
+  xterm; extend the helper only if needed to read `isWrapped`): the contract condition 3
+  list, plus: overlay present -> no joins; image lines never joined; shrink case with content
+  reaching the bottom screen row keeps the bottom row content intact after delete+insert;
+  `PI_TUI_SOFT_WRAP=0` byte output equals a run with markers disabled; Markdown with flag off
+  emits no marker. Use a negative control: show at least the shrink/stale-join test fails
+  without the delete+insert step.
+- Keep the diff small and readable; no `any`; top-level imports only; erasable TS.
+- Then run the U2 oracle and `npm run check`; record pass counts and elapsed time.
+
 ### U3
 `npm run build:offline` (never `npm run build`); the personal symlink picks up the bundle.
 Operator: start a NEW pi, ask for a long multi-paragraph answer, copy a paragraph and a
@@ -189,3 +240,4 @@ heavier reset. Script reviewed: stage bytes match the U1 design (a)-(d).
 - Probe reduced at operator request: default 3-screen quick mode (A, C after, D2 after) added, `--full` keeps 10 screens. Probe tests 11 pass / 0 fail (177.861121ms, verified). Visual check in tmux 100x20 passed for all 3 screens.
 - Ghostty quick result recorded (screen 3 wrong join, extra spaces at joins). Added `--followup` (B, D1, D3) as probe revision 1 of 2. Probe tests 14 pass / 0 fail (196.851527ms, verified); tmux 100x20 visual check of the 3 follow-up screens passed.
 - U1 verified: Ghostty quick + follow-up results recorded; gate PROCEED with delete+insert line as the stale-join fix; probe tests 14 pass / 0 fail. Row shape (extra spaces vs char wrap) waits for the operator before U2.
+- Row shape decided by operator (keep word wrap, accept extra spaces). U2 design written by Opus; execution handed to gpt-6.1-sol.
