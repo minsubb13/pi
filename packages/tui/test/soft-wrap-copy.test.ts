@@ -22,6 +22,14 @@ const PARAGRAPH = "A copied paragraph should stay one logical line even when the
 
 class RecordingTerminal extends VirtualTerminal {
 	writes: string[] = [];
+	renderBetweenInputs?: () => void;
+
+	override sendInput(data: string): void {
+		super.sendInput(data);
+		// Real mouse events arrive in separate event-loop turns, with highlighted
+		// frames rendered during the drag rather than only after its release.
+		this.renderBetweenInputs?.();
+	}
 
 	override write(data: string): void {
 		this.writes.push(data);
@@ -44,6 +52,7 @@ function fixture(t: TestContext, text: string, width = 24, implicit = false) {
 	else tui.setLayoutRoot(new ScrollView(md, { primary: true }));
 	tui.start();
 	tui.renderNow();
+	terminal.renderBetweenInputs = () => tui.renderNow();
 	t.after(() => tui.stop());
 	return { terminal, tui, md, plain, copies };
 }
@@ -184,6 +193,18 @@ test("overlay screen selections cannot join unrelated rows", (t) => {
 	tui.renderNow();
 	drag(terminal, { row: 0, col: 1 }, { row: 1, col: 11 });
 	assert.deepEqual(copies, [`${plain[0].trim()}\noverlay text`]);
+});
+
+test("a flash overwriting a continuation row cannot join unrelated screen text", (t) => {
+	const { tui, terminal, md, copies } = fixture(t, PARAGRAPH);
+	tui.setLayoutRoot(md);
+	terminal.resize(24, 3);
+	tui.flash("notice", 5000);
+	tui.renderNow();
+	const rows = tui.getScreenLines().map(stripTerminalSequences);
+	assert.ok(rows[0].includes("notice"));
+	drag(terminal, { row: 0, col: 1 }, { row: 1, col: 23 });
+	assert.deepEqual(copies, [`${rows[0].slice(1).trimEnd()}\n${rows[1].trimEnd()}`]);
 });
 
 test("plain Text and screen selections outside a ScrollView keep hard newlines", (t) => {

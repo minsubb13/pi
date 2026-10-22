@@ -1736,10 +1736,15 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
 		screen = this.compositeFlashes(screen, width, height);
 
 		const cursorPos = this.extractCursorPosition(screen, height);
-		// Screen selections use the same normalized/clamped rows as before, plus
-		// metadata only where compositing has preserved an unobscured wrap boundary.
-		const screenWrapMarkers = screen.map((line) =>
-			!this.hasOverlay() && visibleWidth(line) <= width && line.endsWith(SOFT_WRAP_MARKER)
+		// Highlight slicing drops trailing markers. Recover them from the raw layout,
+		// but only if neither selected row's visible text was overwritten (e.g. by a
+		// flash). Screen copy still uses the normalized/clamped terminal rows below.
+		const screenWrapMarkers = nextLayout.lines.map((line, row) =>
+			!this.hasOverlay() &&
+			visibleWidth(line) <= width &&
+			line.endsWith(SOFT_WRAP_MARKER) &&
+			stripTerminalSequences(line) === stripTerminalSequences(screen[row] ?? "") &&
+			stripTerminalSequences(nextLayout.lines[row + 1] ?? "") === stripTerminalSequences(screen[row + 1] ?? "")
 				? (line.includes(SOFT_WRAP_SPACE_MARKER) ? SOFT_WRAP_SPACE_MARKER : "") + SOFT_WRAP_MARKER
 				: "",
 		);
