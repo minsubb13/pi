@@ -124,6 +124,29 @@ node /home/remote3/dev/pi/scripts/personal/soft-wrap-probe-v2.mjs --followup
 
 Report: `1: one line/multiple lines, spaces normal/extra; 2: two lines/joined; 3: two lines/joined`.
 
+### Ghostty follow-up result (operator, 2026-10-21)
+
+- Screen 1 (B, erased padding): P one line, still extra spaces at each join (same runs
+  as A). Erased cells are copied as spaces, so B gives no gain over A.
+- Screen 2 (D1, `\x1b[2K` + short text + CR/LF): WRONG JOIN, 129-space gap (same as D2).
+- Screen 3 (D3, `\x1b[M\x1b[L` delete+insert line before rewriting): P and Q on separate
+  lines. Q kept its leading margin space (` CASE_Q_BEGIN`), which shows pi's paste unwrap
+  did not touch it either.
+
+Gate decision (criteria v1): PROCEED. Ghostty: (a) one line, (c) one line after a
+contiguous redraw, (d) a stale join is prevented by delete+insert line (D3). Extra spaces at
+joins are unavoidable for word-wrapped rows (A and B both show them); row shape needs an
+operator choice before U2 (accept extra spaces vs char wrap).
+
+Supervision note for U2 (Opus): `\x1b[M\x1b[L` deletes the current row (rows below
+move up, a blank row enters at the bottom of the scroll region), then inserts a blank row
+(rows below move back, the bottom row of the screen is pushed out). Net effect: the
+current row becomes a fresh row with no join, and the content of the screen's bottom row
+is lost. The renderer may only use it when it then rewrites through the last visible row,
+or must limit it to one row (for example a one-row scroll region). Use it only on rows
+whose previous state was joined and whose new state is not; prove both effects with xterm
+tests.
+
 Full run reference (not required by the decision above), Ghostty alone, then herdr inside Ghostty (80+ columns, 16+ rows):
 
 ```sh
@@ -165,3 +188,4 @@ heavier reset. Script reviewed: stage bytes match the U1 design (a)-(d).
 - U1 implemented by GPT-6.1-sol: new `soft-wrap-probe-v2.mjs` with 10 deterministic stages and TTY/resize guards; v1 unchanged. New xterm self-tests at 80, 181, and 204 columns verify visual row text, wrap flags, real written vs erased gap cells, and hard P/Q separation after all three candidate shrink redraws. New+old probe tests: 8 pass / 0 fail (153.994055ms, verified). `npm run check` passes clean, no formatting fixes (verified). xterm results validate only the script, not terminal clipboard semantics. No renderer change or personal-build replacement yet.
 - Probe reduced at operator request: default 3-screen quick mode (A, C after, D2 after) added, `--full` keeps 10 screens. Probe tests 11 pass / 0 fail (177.861121ms, verified). Visual check in tmux 100x20 passed for all 3 screens.
 - Ghostty quick result recorded (screen 3 wrong join, extra spaces at joins). Added `--followup` (B, D1, D3) as probe revision 1 of 2. Probe tests 14 pass / 0 fail (196.851527ms, verified); tmux 100x20 visual check of the 3 follow-up screens passed.
+- U1 verified: Ghostty quick + follow-up results recorded; gate PROCEED with delete+insert line as the stale-join fix; probe tests 14 pass / 0 fail. Row shape (extra spaces vs char wrap) waits for the operator before U2.
