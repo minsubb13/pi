@@ -107,7 +107,10 @@ Only findings tied to a contract condition, each with the evidence that shows th
 
 Filled by the author after the review, one row per finding. A MUST-FIX is disposed only by a fix the reviewer re-checked, or by the operator's explicit acceptance of the residual; a disputed MUST-FIX on a required condition means the run is not complete.
 
-to be filled by author
+- F1: applied in 6f44d6bc7 - re-checked PASS by Claude Opus (re-review 2 and 3) on 2026-10-22
+- F2: applied in 6f44d6bc7 - re-checked PASS by Claude Opus (re-review 2 and 3) on 2026-10-22
+- F3: applied in 6f44d6bc7 (fullscreen) - re-checked PASS by Claude Opus (re-review 2 and 3) on 2026-10-22; regular-mode residual carried as F10
+- F4-F7: NOTEs, no code change - dispositions accepted by Claude Opus (re-review 2 and 3) on 2026-10-22
 
 ## What this review did not check
 
@@ -237,9 +240,9 @@ Filled by the author after the review, one row per finding. A MUST-FIX is dispos
 - F7: no code change (NOTE) - re-checked PASS (disposition accepted) by Claude Opus 5.5 on 2026-10-22.
   - Gating was re-read with the start marker included: `markdown.ts:289,354,357,377-378`, `tui-alt-screen.ts:1470,1706`, `tui-main-screen.ts:181,299`.
   - Byte identity with 01452e0f8 is still inferred, not replayed.
-- F8: to be filled by author
-- F9: to be filled by author
-- F10: to be filled by author
+- F8: applied in 9047da62a - re-checked PASS by Claude Opus (re-review 3) on 2026-10-22
+- F9: applied in 9047da62a - re-checked PASS by Claude Opus (re-review 3) on 2026-10-22
+- F10: NOTE, no code change - regular mode keeps v1's hard rows for Box-wrapped Markdown; carried over in the contract completion record; accepted by Claude Opus (re-review 3) on 2026-10-22
 
 ## What this review did not check
 
@@ -256,3 +259,150 @@ Filled by the author after the review, one row per finding. A MUST-FIX is dispos
 - Not accessed: the installed bundle, `~/.pi`, `/tmp`, and the `origin` remote.
 - F9 reach was surveyed only through `examples/**` files that construct a Markdown, and through pi's dock containers.
 - Performance was not measured. This includes the per-frame pair recovery over every screen row.
+
+---
+
+# Review - soft-wrap-output v2 re-review 3: OSC 133 prefix and clipped-box fixes (2026-10-22)
+
+Reviewer: Claude Opus 5.5 (claude-opus-5-5) through the Claude Agent SDK on remote3 (Linux), read-only, fresh context, started 2026-10-22. The start time is unrecorded because the read-only session had no clock. The review started after the reviewed commit's timestamp of 14:04 +0900.
+
+Reviewed commit: f66395387668ce97f6a1851b920ee1ddb840de1e (zone /home/remote3/dev/pi, branch personal/soft-wrap-output; HEAD read from `.git/refs/heads/personal/soft-wrap-output`); code commits 77392e425, b4955a1ae, 9e2d45a14, 991aafb23, 6f44d6bc7, 9047da62a (from the branch reflog)
+
+Contract: docs/2026-10-21-soft-wrap-output-v2-contract.md (the superseded docs/2026-10-21-soft-wrap-output-contract.md supplies the regular-mode terms in condition 2) - Plan: docs/2026-10-21-soft-wrap-output-v2-plan.md, plus docs/2026-10-21-soft-wrap-output-plan.md
+
+Scope:
+- Read in full: both contracts, both plans, and the review file (review 1 and re-review 2).
+- Read in full in `packages/tui`: `src/soft-wrap-output.ts`, `src/layout.ts`, `src/components/box.ts`, `src/components/v-stack.ts`, `src/components/h-stack.ts`, `test/soft-wrap-copy.test.ts`, `test/soft-wrap-output.test.ts`.
+- Read in part in `packages/tui`:
+  - `src/tui-alt-screen.ts`:
+    - lines 405-539 (stop dump, Kitty preparation, prompt jump)
+    - lines 1168-1310 (selection points, word selection, focus, auto-scroll)
+    - lines 1380-1859 (press, selection bounds, copy, highlights, flashes, `doRender`)
+    - Grep for marker and OSC 133 uses
+  - `src/components/markdown.ts`: lines 1-480.
+  - `src/tui-main-screen.ts`: lines 170-689.
+  - `src/utils.ts`:
+    - `stripTerminalSequences` (313-327)
+    - the tail of the token splitter (820-878)
+    - `flattenLines`, `wrapTextWithAnsi`, `wrapSingleLine`, `breakLongWord`, `applyBackgroundToLine` (896-1124)
+    - `sliceByColumn` and `sliceWithWidth` (1279-1332)
+  - `src/tui.ts`: `Container.render`, `compositeTuiLine`, `applyLineResets` (through Grep context).
+  - `src/components/scroll-view.ts`: lines 118-225, plus Grep for the scrollbar.
+  - `src/components/mouse-region.ts`: `render` (through Grep).
+- Read in full in `packages/coding-agent/src/modes/interactive`: `chat-viewport.ts`, `components/assistant-message.ts`, `user-message.ts`, `compaction-summary-message.ts`, `custom-message.ts`, `markdown-transform.ts`.
+- Read in part in `packages/coding-agent`:
+  - `interactive-mode.ts`: lines 855-879, 960-999, 3490-3549, 3890-4003, 4660-4679, plus Grep for `documentContainer`.
+  - `core/settings-defaults.ts` and `components/visual-truncate.ts`: Grep only.
+- Checked by Grep only:
+  - `new Markdown(` across `coding-agent/src`
+  - Markdown in tool files
+  - `HStack` uses
+  - `.slice(-` on render output in `packages/*/src`
+- Also read `.git` HEAD, the branch ref, the branch reflog, `refs/remotes/origin/personal/` and `packed-refs`.
+- Tools: Read, Grep and Glob only. No command, test, build or git diff was run.
+
+Verdict: PASS (re-review 3, 2026-10-22)
+
+FAIL = at least one MUST-FIX. PASS WITH FIXES = no MUST-FIX, at least one SHOULD-FIX. PASS = nothing above NOTE. The verdict is the reviewer's; the author never edits it - a re-review appends a new verdict line with its date.
+
+## Findings
+
+Only findings tied to a contract condition, each with the evidence that shows the problem (file:line, command output). A finding without evidence is a NOTE. Style, naming, and improvements outside the contract are not findings; the reviewer may list them under NOTE and they never block.
+
+F1-F10 come from review 1 and re-review 2. Their re-check results are under Dispositions. I searched pi's transcript path for wrong joins and lost joins (task 2) and found no wrong join; the trace is in the condition 1 row. The verdict covers the findings only. Conditions 5, 6 and 7 are still open (see Condition check), so the run is not complete.
+
+- [NOTE] F11 On the screen path, transcript joins are lost while the transcript scrollbar is painted. The round-4 supervision note gives a cause that holds only for one scrollbar setting.
+  - Evidence (verified by reading):
+    - pi's transcript scrollbar defaults to `"auto"` (`coding-agent/src/core/settings-defaults.ts:64`, `interactive-mode.ts:976`, `chat-viewport.ts:27`).
+    - `"auto"` reserves no column (`scroll-view.ts:93-95`). The transcript child is therefore a full-width box, and the new owner map accepts its rows (`tui-alt-screen.ts:1744`).
+    - After any scroll movement, the auto scrollbar stays visible for about one second (`scroll-view.ts:55,77,97-110,144,159`).
+    - During that second, `paintScrollbar` rebuilds the last cell of each row with `replaceScrollbarCell` (`layout.ts:309-327`). Its `after` slice has length 0 and returns `""` (`layout.ts:263`, `utils.ts:1290`). This drops the end marker that sits after the last column from `nextLayout.lines`.
+    - `getSoftWrapJoin` then returns `"none"`, and the copy writes `\n`.
+    - With `"always"`, the child is one column narrower (`scroll-view.ts:94`), so the owner map rejects every transcript row (`tui-alt-screen.ts:1744`).
+    - v2 plan line 107 attributes the loss to "a reserved scrollbar column". That is true only for `"always"`. Under the default it is the painted scrollbar glyph.
+  - Reach:
+    - Only a drag that starts outside the transcript, for example in the editor, uses the screen path (`tui-alt-screen.ts:1390-1394,1453`). Such a drag does not auto-scroll (`:1278-1281`).
+    - A drag that starts in the transcript reads raw rows, which carry no scrollbar (`layout.ts:162`). It is unaffected.
+  - Effect: a join is lost, but nothing is joined wrongly. This touches condition 1 in the same way as F5 and F6. Record it in the carry-over.
+
+## Condition check
+
+| Contract condition | Status | Reason |
+| --- | --- | --- |
+| 1. Fullscreen copy joins soft-wrapped Markdown paragraph rows; real breaks, block kinds and partial selections are handled; other selections copy as today | met (code reading; pass count quoted) | **Fixed (verified):** F8 and F9 (see Dispositions); F1-F3 still hold. **Marker placement (verified):** Markdown writes the start marker as a continuation row's first bytes and the end marker as its last bytes (`markdown.ts:377-387`). A pair forms only inside one source line of one Markdown (`markdown.ts:357,378`). **Prefix and suffix search on pi's transcript path (verified):** (a) OSC 133 A goes on a message's first row, which is a Spacer or padding row and never a continuation (`assistant-message.ts:86,103`; `user-message.ts:46,67`). (b) OSC 133 B/C goes on the last row; it is now skipped (`soft-wrap-output.ts:36`) and stripped from the copied text (`utils.ts:313-327`). (c) SGR background and padding come from user-message Markdown and from Box (`markdown.ts:380-381`, `box.ts:150,165-171`), and the join test allows them (`soft-wrap-output.ts:35-36`). (d) OSC 8 links and inline SGR stay between the two markers. (e) MouseRegion, Container and Spacer pass rows through or add separate rows (`mouse-region.ts:21-23`, `tui.ts:406-418`). **Reordering and clipping:** no shipped component on the transcript path reorders rows or clips them from the top. `VStack.render` clips only the bottom (`v-stack.ts:25`). `HStack.render` and partial-width paints drop the end marker at the column limit (`h-stack.ts:38`, `tui.ts:438`, `utils.ts:1290-1330`), so those rows can lose joins but cannot join wrongly. **Streaming:** the markers are recomputed every frame from the current layout (`tui-alt-screen.ts:1454-1458`, `layout.ts:162`). **Remaining lost joins (NOTE):** F5, F6, F11. |
+| 2. Regular mode keeps the v1 behavior | met (xterm tests quoted; Ghostty and herdr not probed) | **F8 regression removed (verified):** `extractSoftWrapRows` removes a leading OSC 133 prefix only for the start-marker check and leaves the output bytes intact (`soft-wrap-output.ts:46,52`). Test `soft-wrap-output.test.ts:117-153` asserts: every row is continued, the wrap flags are set, the buffer holds one logical line, the B/C bytes are written, and no `\r\n` is written. For pi's own compositions, v2 again joins every boundary that v1 joined. Box rows stay hard, as in v1 (F10). **Renderer algorithm unchanged since re-review 2:** separators (`tui-main-screen.ts:318,562-563,588,618`); logical-line expansion (`:429-441`); stale-join prepass (`:399-410,443-456`); forced-redraw DL/IL (`:312-315`); viewport-top clamp (`:435`); opt-out (`:181,299`). **Caveat:** in regular mode, the OSC 133 B/C bytes now arrive while the terminal is in the pending-wrap state, as they did in v1. This is not probed, and regular mode has no operator copy evidence. |
+| 3. `PI_TUI_SOFT_WRAP=0` turns the fullscreen join off | met | **Gating unchanged:** `markdown.ts:289,354,357,377-378`; `tui-alt-screen.ts:1471,1707`. **No new output bytes:** the new owner map only fills `screenWrapMarkers` and `screenStartMarkers`, which feed `previousSelectionScreen` and are never written (`tui-alt-screen.ts:1729-1771,1857-1859`). **Tests:** `soft-wrap-copy.test.ts:172-187`, `soft-wrap-output.test.ts:573-609`. **Caveat:** the oracle-strength issue in F7 still applies. |
+| 4. Tests cover the listed cases and the existing suites pass | met (coverage verified; pass count quoted) | **Counted (verified):** 43 tests in `soft-wrap-copy.test.ts` and 24 in `soft-wrap-output.test.ts`, both matching v2 plan line 105. **Seven round-4 tests:** four for the OSC 133 prefix in copy (`soft-wrap-copy.test.ts:197-221`), one for two clipped boxes (`:223-237`) and two for the regular-mode prefix (`soft-wrap-output.test.ts:117-153`). **Listed cases:** `soft-wrap-copy.test.ts:73-112,123-164,172-187`. **Quoted, not run:** 365 pass / 0 fail. Also quoted: 5 of the 7 new tests failed before the fix. That quote fits the code: the two direct-screen prefix tests could already pass, because `paintBox` strips the zone prefix (`layout.ts:338`). |
+| 5. Personal install runs the new build; `releases/1.3.0` is unchanged; operator smoke test passes in Ghostty and herdr | not met (pending) | **Quoted:** the round-4 rebuild, `current-version`, the symlink, `pi --version` and the sha256 baseline (v2 plan line 108). Also quoted: an installed-binary tmux OSC 52 check of a tool-free final reply whose last row carries the B/C prefix; it copied as one line (line 109). **Stale:** the operator smoke test (line 78) predates rounds 3 and 4. A fresh one in Ghostty and herdr is pending (line 98). **Not accessed:** `~/.pi` and `/tmp`. |
+| 6. Independent review: no MUST-FIX open, every finding disposed | not met (pending author) | **This review:** no MUST-FIX or SHOULD-FIX is open. F1-F10 are re-checked under Dispositions. **Still to do:** at HEAD, the F8-F10 rows of re-review 2 still read "to be filled by author" (`docs/2026-10-21-soft-wrap-output-v2-review.md:240-242`), and F11 is new. The author has to record those dispositions. |
+| 7. `npm run check` clean; committed on the branch and pushed to `origin` | not met (pending U4) | **Committed (verified):** 9047da62a and f663953 are on the branch (reflog lines 27-28). **No push evidence (verified):** `.git/refs/remotes/origin/personal/` holds only `soft-wrap-paste`, and `packed-refs` has no entry for this branch. **Quoted, not run:** the clean `npm run check`. |
+
+## Dispositions
+
+Filled by the author after the review, one row per finding. A MUST-FIX is disposed only by a fix the reviewer re-checked, or by the operator's explicit acceptance of the residual; a disputed MUST-FIX on a required condition means the run is not complete.
+
+- F1: applied in 6f44d6bc7 - re-checked PASS by Claude Opus 5.5 on 2026-10-22 (re-review 3).
+  - `dock` carries no start marker, so the pair test fails (`soft-wrap-output.ts:37`, `tui-alt-screen.ts:1755,1759`).
+  - The new owner check rejects the pair as well, because `dock` belongs to a different box (`:1760-1762`).
+  - Test: `soft-wrap-copy.test.ts:239-251`.
+- F2: applied in 6f44d6bc7 - re-checked PASS by Claude Opus 5.5 on 2026-10-22 (re-review 3).
+  - `VStack.render` still clips only the bottom (`v-stack.ts:25`). The next entry's first row has no start marker. Regular mode requires the start marker after an optional OSC 133 prefix (`soft-wrap-output.ts:52`).
+  - Tests: `soft-wrap-output.test.ts:155-172`, and `soft-wrap-copy.test.ts:239-251` with `rawScrollRows=true`.
+- F3: applied in 6f44d6bc7 for fullscreen - re-checked PASS by Claude Opus 5.5 on 2026-10-22 (re-review 3).
+  - The join test still allows trailing spaces, SGR and OSC 8 close, and leading spaces and SGR. The start side now also allows OSC 133 (`soft-wrap-output.ts:35-36`).
+  - The shape of Box rows is unchanged (`box.ts:150,165-171`). A Box is a full-width plain layout box, so the owner map accepts its rows.
+  - Tests: `soft-wrap-copy.test.ts:253-279`, including the bordered control.
+- F4: no code change (NOTE) - re-checked PASS (disposition accepted) by Claude Opus 5.5 on 2026-10-22. `TuiMainScreen.render` still enables markers (`tui-main-screen.ts:179-187`). The `/debug` output still goes only to a file.
+- F5: no code change (NOTE) - re-checked PASS (disposition accepted) by Claude Opus 5.5 on 2026-10-22. Only `" "` counts as a space token (`utils.ts:835`), and `selected.trimStart()` is unchanged (`tui-alt-screen.ts:1473`).
+- F6: no code change (NOTE) - re-checked PASS (disposition accepted) by Claude Opus 5.5 on 2026-10-22.
+  - The empty styled row still comes from `utils.ts:953-962,991-994`. The blank-row test is `soft-wrap-output.ts:34`, and the copy branch is `tui-alt-screen.ts:1471-1477`.
+  - The result is still a newline where one space belongs. A join is lost; nothing is joined wrongly.
+- F7: no code change (NOTE) - re-checked PASS (disposition accepted) by Claude Opus 5.5 on 2026-10-22.
+  - The gating is unchanged (see condition 3), and the round-4 code adds no written bytes.
+  - Byte identity with 01452e0f8 is still inferred, not replayed.
+- F8: applied in 9047da62a - re-checked PASS by Claude Opus 5.5 on 2026-10-22.
+  - Fullscreen:
+    - The start side of `getSoftWrapJoin` now skips spaces, SGR, and OSC 133 A/B/C ending in BEL or ST (`soft-wrap-output.ts:36`).
+    - The last row of a tool-free reply reads `\x1b]133;B\x07\x1b]133;C\x07\x1b_pi:wc\x07 ...` (`assistant-message.ts:87`, `markdown.ts:386`). The join test now reaches the start marker on that row, so the raw ScrollView copy joins it (`tui-alt-screen.ts:1454-1458,1471-1474`).
+  - Regular mode: `soft-wrap-output.ts:52` removes the same prefix only for the check, and the bytes are still written.
+  - Tests: `soft-wrap-copy.test.ts:197-221` covers the raw ScrollView path and direct screen copy, each with BEL and ST. The test wrapper copies Markdown's array before prefixing it, which matches `Container.render` (`tui.ts:406-418`). Regular mode is covered by `soft-wrap-output.test.ts:117-153`.
+  - Quoted: the installed-binary tmux check in v2 plan line 109.
+  - Still open: Ghostty and herdr behavior with OSC 133 bytes in the pending-wrap state, and the fresh operator smoke test.
+- F9: applied in 9047da62a - re-checked PASS by Claude Opus 5.5 on 2026-10-22.
+  - How the owner map works:
+    - It maps each row to its box and source index, in paint order: a box's own rows first, then its children, with later paints overwriting earlier ones (`tui-alt-screen.ts:1735-1751`).
+    - It uses `paintBox`'s row range, source index and skip rule (`layout.ts:333-337`).
+    - A row that a partial-width box paints is cleared (`:1743-1746`).
+    - A pair is kept only when both rows come from the same box and the source index increases by 1 (`:1756-1762`).
+  - Static re-run of the re-review 2 trace:
+    - A's child sits at `rect.y` 0, so rows 0-1 have index 0-1.
+    - B's child sits at `rect.y` 2-1=1 (`layout.ts:139-151`) and is clipped to rows 2-3, with index 1-2.
+    - Rows 1 and 2 belong to different boxes, so the copy writes `\n`.
+  - Test: `soft-wrap-copy.test.ts:223-237`.
+  - pi's transcript is one full-width plain box under the default scrollbar, so its consecutive rows still pair on the screen path. The remaining lost joins are F11.
+- F10: no code change (NOTE), recorded as carry-over in v2 plan line 106 - re-checked PASS (disposition accepted) by Claude Opus 5.5 on 2026-10-22.
+  - `extractSoftWrapRows` still needs the end marker at the very end of the row, and the start marker at byte 0 after an optional OSC 133 prefix (`soft-wrap-output.ts:50-52`). This equals v1 for Box rows.
+  - Copy it into the contract's Carry-over section at completion.
+- F11: NOTE, no code change - a screen-path selection (started outside the transcript) loses transcript joins while the auto scrollbar is painted; lost join only, never a wrong join; transcript drags use raw rows and are unaffected; carried over in the contract completion record
+
+## What this review did not check
+
+- Nothing was run: no `node --test`, no `npm run check`, no build, and no terminal (xterm, tmux, Ghostty or herdr). All re-check traces and F11 are static.
+- No git diff was viewed:
+  - The content of 9047da62a was inferred from the current files and v2 plan lines 99-107.
+  - f66395387 was assumed to change docs only; this is not verified.
+  - `git status` was not run, so the working tree is assumed to equal f663953.
+- Not read:
+  - `tui-alt-screen.ts` lines 1-404, 540-1167 and 1311-1379.
+  - The rest of `tui.ts` and `utils.ts`.
+  - The existing oracle suites: `tui-alt-screen.test.ts`, `mouse-components.test.ts`, `layout.test.ts`, `tui-render.test.ts`, `tui-shrink.test.ts`, the overlay tests, `markdown.test.ts` and `wrap-ansi.test.ts`.
+  - `branch-summary-message.ts`, `skill-invocation-message.ts` and the tool-execution components (Grep only; no Markdown found in tool files).
+- Not probed by anyone: how Ghostty and herdr handle OSC 133 B/C bytes that arrive in the pending-wrap state.
+  - Regular mode now writes them that way for every tool-free reply whose last paragraph wraps, as v1 did.
+  - It is unknown whether the join survives, and which row a terminal tags with the B/C semantic marks.
+- Regular mode has no operator copy evidence in either run. Condition 2 rests on xterm tests.
+- Raw ScrollView rows and regular mode have no owner check.
+  - A custom component that renders a bottom-clipped Markdown directly above a top-clipped one would still join the two.
+  - No shipped tui or pi component was found that clips rendered Markdown rows from the top. Extension renderers were not surveyed.
+- Not accessed: the installed bundle, `~/.pi`, `/tmp`, and the `origin` remote.
+- Performance was not measured, including the per-frame owner map over the layout tree.
