@@ -112,6 +112,42 @@ Executor brief for U2 (gpt-6.1-sol; Opus design, supersedes the sketch above whe
 - Keep the diff small and readable; no `any`; top-level imports only; erasable TS.
 - Then run the U2 oracle and `npm run check`; record pass counts and elapsed time.
 
+### U2 implementation and evidence (GPT-6.1-sol, 2026-10-21)
+
+- `soft-wrap-output.ts`: zero-width marker, scoped marker context, and extraction of safe
+  full-width paragraph joins. The marker must still be at the end of a row; a container
+  that adds a border or padding after it does not accidentally make a bordered row join.
+  Images and empty successor rows cannot continue a logical line.
+- `Markdown`: only top-level prose paragraph/text tokens get continuation markers; actual
+  source line breaks, headings, code, tables, lists, and quote borders remain hard rows.
+  `wrapTextWithAnsi` accepts an optional continuation-flags collector, populated by the
+  same existing wrapping loop so ANSI state across literal newlines is unchanged.
+- Refinement of the design's module flag: it is on only for the synchronous duration of
+  `TuiMainScreen.render()`, restored in `finally`, not for the whole start/stop lifetime.
+  This avoids leaking markers to standalone Markdown consumers and fullscreen rendering,
+  even when they share the process or a render throws. The Markdown cache includes it.
+- Main renderer tracks flags in capture/restore state and expands differential updates to
+  entire logical lines. Old joins that have disappeared are cleared by D3 in a **prepass**,
+  before writing the contiguous new paragraph (inserting resets during pending autowrap
+  would break the new join). Remaining content is repainted after the resets. Short final
+  continuation rows erase stale trailing cells after printing, not before autowrap.
+- A forced full redraw must also clear Ghostty's retained row metadata; after the existing
+  screen+scrollback clear it deletes and inserts the cleared screen rows if soft wraps
+  were previously rendered. This history bit survives `resetRenderState()`.
+- Correction to the earlier bottom-row warning: delete then insert returns the shifted
+  rows, pushing out the blank row introduced by delete, not the original bottom content.
+  The bottom-row preservation test verifies the resulting screen; repainting the suffix
+  is retained to restore any neighboring wrap metadata affected by row movement.
+- Tests: first passing set 18 new tests; refinement round 1 of 3 added short-final-row,
+  CJK/combining-character, border/empty-successor guards, and stronger opt-out checks.
+  Final U2 oracle: 226 tests pass / 0 fail, 1867.02591ms (verified). `npm run check` clean,
+  no fixes, errors, warnings, or infos (verified).
+- Negative control: replacing the D3 prepass with ordinary `2K` makes the shrink regression
+  fail (`Ghostty needs row replacement, not just erase`, 0 pass / 1 fail). Restoring D3
+  passes. xterm itself clears wraps on erase, unlike Ghostty, so the regression also asserts
+  the probe-established byte protocol; it does not claim xterm alone models Ghostty.
+- Not yet built or installed; operator smoke evidence and fresh independent review pending.
+
 ### U3
 `npm run build:offline` (never `npm run build`); the personal symlink picks up the bundle.
 Operator: start a NEW pi, ask for a long multi-paragraph answer, copy a paragraph and a
@@ -126,7 +162,8 @@ and the commit SHA. Save output to `docs/2026-10-21-soft-wrap-output-review.md`.
 
 ## Probe v2 verdicts
 
-Operator results pending. Script self-checks are not Ghostty/herdr copy evidence.
+Ghostty results are recorded below. herdr was deferred to the installation smoke test by
+operator decision. Script self-checks are not Ghostty/herdr copy evidence.
 
 Operator decision 2026-10-21 (answer "1번" to the reduction question): run only the
 3-screen quick probe, in Ghostty alone. herdr is not probed; it is observed once in the U3
@@ -201,7 +238,7 @@ tests.
 Full run reference (not required by the decision above), Ghostty alone, then herdr inside Ghostty (80+ columns, 16+ rows):
 
 ```sh
-node /home/remote3/dev/pi/scripts/personal/soft-wrap-probe-v2.mjs
+node /home/remote3/dev/pi/scripts/personal/soft-wrap-probe-v2.mjs --full
 ```
 
 Ten screens, Enter advances; Ctrl+C cancels. Do not resize. Copy to TextEdit or another
@@ -241,3 +278,4 @@ heavier reset. Script reviewed: stage bytes match the U1 design (a)-(d).
 - Ghostty quick result recorded (screen 3 wrong join, extra spaces at joins). Added `--followup` (B, D1, D3) as probe revision 1 of 2. Probe tests 14 pass / 0 fail (196.851527ms, verified); tmux 100x20 visual check of the 3 follow-up screens passed.
 - U1 verified: Ghostty quick + follow-up results recorded; gate PROCEED with delete+insert line as the stale-join fix; probe tests 14 pass / 0 fail. Row shape (extra spaces vs char wrap) waits for the operator before U2.
 - Row shape decided by operator (keep word wrap, accept extra spaces). U2 design written by Opus; execution handed to gpt-6.1-sol.
+- U2 implemented: 20 new tests, full U2 oracle 226 pass / 0 fail (1867.02591ms); `npm run check` clean. Negative control confirms the Ghostty-specific D3 byte assertion detects an ordinary-erase regression. Details and design refinements above; refinement rounds used: 1 of 3.

@@ -1,6 +1,7 @@
 import { Marked, type Token, Tokenizer, type TokenizerExtension, type Tokens } from "marked";
 import markedCjkFriendly from "marked-cjk-friendly";
 import { renderLatex } from "../latex.ts";
+import { areSoftWrapMarkersEnabled, SOFT_WRAP_MARKER } from "../soft-wrap-output.ts";
 import { getCapabilities, hyperlink, isImageLine } from "../terminal-image.ts";
 import type { Component } from "../tui.ts";
 import { applyBackgroundToLine, flattenLines, visibleWidth, wrapTextWithAnsi } from "../utils.ts";
@@ -267,6 +268,7 @@ export class Markdown implements Component {
 	// Cache for rendered output
 	private cachedText?: string;
 	private cachedWidth?: number;
+	private cachedSoftWrap?: boolean;
 	private cachedLines?: string[];
 	// Parsed tokens depend only on the source, so they survive theme and width invalidation. Held weakly: a token tree is
 	// about ten times the size of its source, and every message of a long transcript keeps a Markdown component. The
@@ -301,8 +303,14 @@ export class Markdown implements Component {
 	}
 
 	render(width: number): string[] {
-		// Check cache
-		if (this.cachedLines && this.cachedText === this.text && this.cachedWidth === width) {
+		const softWrap = areSoftWrapMarkersEnabled();
+		// Check cache, including the regular renderer's continuation-marker context.
+		if (
+			this.cachedLines &&
+			this.cachedText === this.text &&
+			this.cachedWidth === width &&
+			this.cachedSoftWrap === softWrap
+		) {
 			return this.cachedLines;
 		}
 
@@ -316,6 +324,7 @@ export class Markdown implements Component {
 			// Update cache
 			this.cachedText = this.text;
 			this.cachedWidth = width;
+			this.cachedSoftWrap = softWrap;
 			this.cachedLines = result;
 			return result;
 		}
@@ -334,6 +343,7 @@ export class Markdown implements Component {
 
 		// Convert tokens to styled terminal output
 		const renderedLines: string[] = [];
+		const paragraphLines: boolean[] = [];
 
 		for (let i = 0; i < tokens.length; i++) {
 			const token = tokens[i];
@@ -341,17 +351,24 @@ export class Markdown implements Component {
 			const tokenLines = this.renderToken(token, contentWidth, nextToken?.type);
 			for (const tokenLine of tokenLines) {
 				renderedLines.push(tokenLine);
+				paragraphLines.push(token.type === "paragraph" || token.type === "text");
 			}
 		}
 
 		// Wrap lines (NO padding, NO background yet)
 		const wrappedLines: string[] = [];
-		for (const line of renderedLines) {
+		const continued: boolean[] = [];
+		for (let index = 0; index < renderedLines.length; index++) {
+			const line = renderedLines[index];
 			if (isImageLine(line)) {
 				wrappedLines.push(line);
+				continued.push(false);
 			} else {
-				for (const wrappedLine of wrapTextWithAnsi(line, contentWidth)) {
-					wrappedLines.push(wrappedLine);
+				const rowContinuations: boolean[] = [];
+				const rows = wrapTextWithAnsi(line, contentWidth, rowContinuations);
+				for (let row = 0; row < rows.length; row++) {
+					wrappedLines.push(rows[row]);
+					continued.push(softWrap && paragraphLines[index] && rowContinuations[row]);
 				}
 			}
 		}
@@ -362,21 +379,23 @@ export class Markdown implements Component {
 		const bgFn = this.defaultTextStyle?.bgColor;
 		const contentLines: string[] = [];
 
-		for (const line of wrappedLines) {
+		for (let index = 0; index < wrappedLines.length; index++) {
+			const line = wrappedLines[index];
 			if (isImageLine(line)) {
 				contentLines.push(line);
 				continue;
 			}
 
 			const lineWithMargins = leftMargin + line + rightMargin;
+			const marker = continued[index] ? SOFT_WRAP_MARKER : "";
 
 			if (bgFn) {
-				contentLines.push(applyBackgroundToLine(lineWithMargins, width, bgFn));
+				contentLines.push(applyBackgroundToLine(lineWithMargins, width, bgFn) + marker);
 			} else {
 				// No background - just pad to width
 				const visibleLen = visibleWidth(lineWithMargins);
 				const paddingNeeded = Math.max(0, width - visibleLen);
-				contentLines.push(lineWithMargins + " ".repeat(paddingNeeded));
+				contentLines.push(lineWithMargins + " ".repeat(paddingNeeded) + marker);
 			}
 		}
 
@@ -395,6 +414,7 @@ export class Markdown implements Component {
 		// Update cache
 		this.cachedText = this.text;
 		this.cachedWidth = width;
+		this.cachedSoftWrap = softWrap;
 		this.cachedLines = result;
 
 		return result.length > 0 ? result : [""];

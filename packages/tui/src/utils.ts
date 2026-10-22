@@ -897,8 +897,10 @@ export function flattenLines(lines: readonly string[]): void {
 	for (const line of lines) Number(line);
 }
 
-export function wrapTextWithAnsi(text: string, width: number): string[] {
+/** Optionally append a continuation flag per returned row; literal newlines always end a logical line. */
+export function wrapTextWithAnsi(text: string, width: number, continued?: boolean[]): string[] {
 	if (!text) {
+		continued?.push(false);
 		return [""];
 	}
 
@@ -912,8 +914,9 @@ export function wrapTextWithAnsi(text: string, width: number): string[] {
 		// Prepend active ANSI codes from previous lines (except for first line)
 		const prefix = result.length > 0 ? tracker.getActiveCodes() : "";
 		const wrappedLines = wrapSingleLine(prefix + inputLine, width);
-		for (const wrappedLine of wrappedLines) {
-			result.push(wrappedLine);
+		for (let index = 0; index < wrappedLines.length; index++) {
+			result.push(wrappedLines[index]);
+			continued?.push(index < wrappedLines.length - 1);
 		}
 		// Update tracker with codes from this line for next iteration
 		updateTrackerFromText(inputLine, tracker);

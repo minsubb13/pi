@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { areSoftWrapMarkersEnabled, extractSoftWrapRows, setSoftWrapMarkersEnabled } from "./soft-wrap-output.ts";
 import { deleteKittyImage, isImageLine } from "./terminal-image.ts";
 import { type TUI, TuiBase, type TuiStopOptions } from "./tui.ts";
 import { visibleWidth } from "./utils.ts";
@@ -112,6 +113,8 @@ function isTermuxSession(): boolean {
 
 export interface TuiMainScreenRenderState {
 	previousLines: string[];
+	previousContinued: boolean[];
+	hasRenderedSoftWraps: boolean;
 	previousWidth: number;
 	previousHeight: number;
 	cursorRow: number;
@@ -124,6 +127,9 @@ export interface TuiMainScreenRenderState {
 export class TuiMainScreen extends TuiBase implements TUI {
 	readonly mode = "regular" as const;
 	private previousLines: string[] = [];
+	private previousContinued: boolean[] = [];
+	// Survives resetRenderState(): a forced redraw still has to clear terminal wrap flags.
+	private hasRenderedSoftWraps = false;
 	private previousKittyImageIds = new Set<number>();
 	private previousWidth = 0;
 	private previousHeight = 0;
@@ -135,6 +141,8 @@ export class TuiMainScreen extends TuiBase implements TUI {
 	captureRenderState(): TuiMainScreenRenderState {
 		return {
 			previousLines: [...this.previousLines],
+			previousContinued: [...this.previousContinued],
+			hasRenderedSoftWraps: this.hasRenderedSoftWraps,
 			previousWidth: this.previousWidth,
 			previousHeight: this.previousHeight,
 			cursorRow: this.cursorRow,
@@ -146,6 +154,8 @@ export class TuiMainScreen extends TuiBase implements TUI {
 
 	restoreRenderState(state: TuiMainScreenRenderState): void {
 		this.previousLines = state.previousLines.map((line) => (isImageLine(line) ? "" : line));
+		this.previousContinued = [...state.previousContinued];
+		this.hasRenderedSoftWraps = state.hasRenderedSoftWraps;
 		this.previousKittyImageIds = new Set();
 		this.previousWidth = state.previousWidth;
 		this.previousHeight = state.previousHeight;
@@ -157,12 +167,23 @@ export class TuiMainScreen extends TuiBase implements TUI {
 
 	protected override resetRenderState(): void {
 		this.previousLines = [];
+		this.previousContinued = [];
 		this.previousWidth = -1;
 		this.previousHeight = -1;
 		this.cursorRow = 0;
 		this.hardwareCursorRow = 0;
 		this.maxLinesRendered = 0;
 		this.previousViewportTop = 0;
+	}
+
+	override render(width: number): string[] {
+		const previous = areSoftWrapMarkersEnabled();
+		setSoftWrapMarkersEnabled(process.env.PI_TUI_SOFT_WRAP !== "0");
+		try {
+			return super.render(width);
+		} finally {
+			setSoftWrapMarkersEnabled(previous);
+		}
 	}
 
 	protected override beforeTerminalStop(options: TuiStopOptions): void {
@@ -272,7 +293,13 @@ export class TuiMainScreen extends TuiBase implements TUI {
 		// Extract cursor position before applying line resets (marker must be found first)
 		const cursorPos = this.extractCursorPosition(newLines, height);
 
-		newLines = this.applyLineResets(newLines);
+		const softWrapRows = extractSoftWrapRows(
+			newLines,
+			width,
+			process.env.PI_TUI_SOFT_WRAP !== "0" && !this.hasOverlayEntries,
+		);
+		const continued = softWrapRows.continued;
+		newLines = this.applyLineResets(softWrapRows.lines);
 
 		// Helper to clear scrollback and viewport and render all new lines
 		const fullRender = (clear: boolean): void => {
@@ -282,9 +309,13 @@ export class TuiMainScreen extends TuiBase implements TUI {
 			if (clear) {
 				output.append(this.deleteKittyImages(this.previousKittyImageIds));
 				output.append("\x1b[2J\x1b[H\x1b[3J"); // Clear screen, home, then clear scrollback
+				if (this.hasRenderedSoftWraps) {
+					// Erase alone can leave Ghostty's old wrap flags. Replace the cleared rows.
+					output.append(`\x1b[${height}M\x1b[${height}L`);
+				}
 			}
 			for (let i = 0; i < newLines.length; i++) {
-				if (i > 0) output.append("\r\n");
+				if (i > 0 && !continued[i - 1]) output.append("\r\n");
 				const line = newLines[i];
 				const isImage = isImageLine(line);
 				const imageReservedRows = isImage ? this.getKittyImageReservedRows(newLines, i) : 1;
@@ -314,6 +345,8 @@ export class TuiMainScreen extends TuiBase implements TUI {
 			this.previousViewportTop = Math.max(0, bufferLength - height);
 			this.positionHardwareCursor(cursorPos, newLines.length);
 			this.previousLines = newLines;
+			this.previousContinued = continued;
+			this.hasRenderedSoftWraps = continued.some(Boolean);
 			this.previousKittyImageIds = this.collectKittyImageIds(newLines);
 			this.previousWidth = width;
 			this.previousHeight = height;
@@ -363,12 +396,19 @@ export class TuiMainScreen extends TuiBase implements TUI {
 		// Find first and last changed lines
 		let firstChanged = -1;
 		let lastChanged = -1;
+		const staleWrapRows = new Set<number>();
 		const maxLines = Math.max(newLines.length, this.previousLines.length);
 		for (let i = 0; i < maxLines; i++) {
 			const oldLine = i < this.previousLines.length ? this.previousLines[i] : "";
 			const newLine = i < newLines.length ? newLines[i] : "";
 
-			if (oldLine !== newLine) {
+			const wasContinued = this.previousContinued[i] ?? false;
+			const isContinued = continued[i] ?? false;
+			if (wasContinued && !isContinued) {
+				staleWrapRows.add(i);
+				staleWrapRows.add(i + 1);
+			}
+			if (oldLine !== newLine || wasContinued !== isContinued) {
 				if (firstChanged === -1) {
 					firstChanged = i;
 				}
@@ -386,7 +426,30 @@ export class TuiMainScreen extends TuiBase implements TUI {
 			const expandedRange = this.expandChangedRangeForKittyImages(firstChanged, lastChanged, newLines);
 			firstChanged = expandedRange.firstChanged;
 			lastChanged = expandedRange.lastChanged;
+			while (firstChanged > 0 && (continued[firstChanged - 1] || this.previousContinued[firstChanged - 1])) {
+				firstChanged--;
+			}
+			if (staleWrapRows.size > 0) {
+				// Row replacement may affect neighboring wrap flags. Repaint the remaining content.
+				lastChanged = Math.max(lastChanged, newLines.length - 1);
+			}
+			while (lastChanged < newLines.length - 1 && continued[lastChanged]) lastChanged++;
 		}
+		// Clear stale joins before painting: resetting a row during autowrap would cancel the pending wrap.
+		const resetStaleWrapRows = (output: BoundedTerminalWriter): void => {
+			let row = hardwareCursorRow;
+			for (const target of staleWrapRows) {
+				if (target < prevViewportTop || target >= prevViewportTop + height) continue;
+				const diff = target - row;
+				if (diff > 0) output.append(`\x1b[${diff}B`);
+				else if (diff < 0) output.append(`\x1b[${-diff}A`);
+				output.append("\r\x1b[M\x1b[L");
+				row = target;
+			}
+			const diff = hardwareCursorRow - row;
+			if (diff > 0) output.append(`\x1b[${diff}B`);
+			else if (diff < 0) output.append(`\x1b[${-diff}A`);
+		};
 		const appendStart = appendedLines && firstChanged === this.previousLines.length && firstChanged > 0;
 
 		// No changes - but still need to update hardware cursor position if it moved
@@ -403,6 +466,7 @@ export class TuiMainScreen extends TuiBase implements TUI {
 				const output = new BoundedTerminalWriter((data) => this.terminal.write(data));
 				output.append("\x1b[?2026h");
 				output.append(this.deleteChangedKittyImages(firstChanged, lastChanged));
+				resetStaleWrapRows(output);
 				// Move to end of new content (clamp to 0 for empty content)
 				const targetRow = Math.max(0, newLines.length - 1);
 				if (targetRow < prevViewportTop) {
@@ -440,6 +504,7 @@ export class TuiMainScreen extends TuiBase implements TUI {
 			}
 			this.positionHardwareCursor(cursorPos, newLines.length);
 			this.previousLines = newLines;
+			this.previousContinued = continued;
 			this.previousKittyImageIds = this.collectKittyImageIds(newLines);
 			this.previousWidth = width;
 			this.previousHeight = height;
@@ -460,6 +525,7 @@ export class TuiMainScreen extends TuiBase implements TUI {
 		const output = new BoundedTerminalWriter((data) => this.terminal.write(data));
 		output.append("\x1b[?2026h"); // Begin synchronized output
 		output.append(this.deleteChangedKittyImages(firstChanged, lastChanged));
+		resetStaleWrapRows(output);
 		const prevViewportBottom = prevViewportTop + height - 1;
 		const moveTargetRow = appendStart ? firstChanged - 1 : firstChanged;
 		if (moveTargetRow > prevViewportBottom) {
@@ -489,7 +555,8 @@ export class TuiMainScreen extends TuiBase implements TUI {
 		// This reduces flicker when only a single line changes (e.g., spinner animation)
 		const renderEnd = Math.min(lastChanged, newLines.length - 1);
 		for (let i = firstChanged; i <= renderEnd; i++) {
-			if (i > firstChanged) output.append("\r\n");
+			const fromAutowrap = i > firstChanged && continued[i - 1];
+			if (i > firstChanged && !fromAutowrap) output.append("\r\n");
 			const line = newLines[i];
 			const isImage = isImageLine(line);
 			const imageReservedRows = isImage ? this.getKittyImageReservedRows(newLines, i, renderEnd) : 1;
@@ -514,7 +581,7 @@ export class TuiMainScreen extends TuiBase implements TUI {
 				continue;
 			}
 
-			output.append("\x1b[2K"); // Clear current line
+			if (!fromAutowrap) output.append("\x1b[2K"); // Full-width continuation overwrites the row
 			if (!isImage && visibleWidth(line) > width) {
 				// Log all lines to crash file for debugging
 				const crashLogPath = path.join(this.logDirectory ?? os.tmpdir(), "pi-tui-crash.log");
@@ -544,6 +611,7 @@ export class TuiMainScreen extends TuiBase implements TUI {
 				throw new Error(errorMsg);
 			}
 			output.append(line);
+			if (fromAutowrap && visibleWidth(line) < width) output.append("\x1b[K");
 		}
 
 		// Track where cursor ended up after rendering
@@ -611,6 +679,8 @@ export class TuiMainScreen extends TuiBase implements TUI {
 		this.positionHardwareCursor(cursorPos, newLines.length);
 
 		this.previousLines = newLines;
+		this.previousContinued = continued;
+		this.hasRenderedSoftWraps ||= continued.some(Boolean);
 		this.previousKittyImageIds = this.collectKittyImageIds(newLines);
 		this.previousWidth = width;
 		this.previousHeight = height;
