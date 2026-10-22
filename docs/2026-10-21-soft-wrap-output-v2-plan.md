@@ -48,3 +48,4 @@ contracts, both plans, the verdict template
 and the commit SHAs. Save output to `docs/2026-10-21-soft-wrap-output-v2-review.md`.
 
 ## Progress log
+- 2026-10-22 11:22 approval: operator said "진행" to the v2 scope report. Pointer moved from the v1 contract to this v2 contract.
