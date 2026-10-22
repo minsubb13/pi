@@ -114,6 +114,44 @@ test("only full-width marked rows with a non-image successor can continue", () =
 	);
 });
 
+for (const terminator of ["\x07", "\x1b\\"]) {
+	test(`assistant OSC 133 prefixes preserve regular-mode final-row autowrap (${JSON.stringify(terminator)})`, async () => {
+		const terminal = new RecordingTerminal(24, 12);
+		const tui = new TuiMainScreen(terminal);
+		const md = new Markdown(PARAGRAPH, 1, 0, defaultMarkdownTheme);
+		tui.addChild({
+			render(width) {
+				const rows = md.render(width).slice();
+				rows[0] = `\x1b]133;A${terminator}${rows[0]}`;
+				rows[rows.length - 1] = `\x1b]133;B${terminator}\x1b]133;C${terminator}${rows.at(-1)}`;
+				return rows;
+			},
+			invalidate() {
+				md.invalidate();
+			},
+		});
+		try {
+			tui.renderNow();
+			await terminal.flush();
+			const state = tui.captureRenderState();
+			assert.ok(state.previousLines.length > 2);
+			assert.deepEqual(
+				state.previousContinued,
+				state.previousLines.map((_, index) => index + 1 < state.previousLines.length),
+			);
+			assert.deepEqual(
+				flags(terminal, state.previousLines.length),
+				state.previousLines.map((_, index) => index > 0),
+			);
+			assert.equal(logicalText(terminal, state.previousLines.length).trim().replace(/ +/g, " "), PARAGRAPH);
+			assert.ok(terminal.output.includes(`\x1b]133;B${terminator}\x1b]133;C${terminator}`));
+			assert.ok(!terminal.output.includes("\r\n"));
+		} finally {
+			tui.stop();
+		}
+	});
+}
+
 test("a truncated VStack paragraph cannot autowrap into its next component", async () => {
 	const terminal = new RecordingTerminal(24, 12);
 	const tui = new TuiMainScreen(terminal);

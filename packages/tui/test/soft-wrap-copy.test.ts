@@ -194,6 +194,48 @@ test("Markdown outside a ScrollView also joins its screen selection", (t) => {
 	assert.deepEqual(copies, [PARAGRAPH]);
 });
 
+for (const direct of [false, true]) {
+	for (const terminator of ["\x07", "\x1b\\"]) {
+		test(`assistant OSC 133 prefixes preserve the final paragraph join (direct=${direct}, terminator=${JSON.stringify(terminator)})`, (t) => {
+			const { tui, terminal, md, plain, copies } = fixture(t, PARAGRAPH);
+			// AssistantMessageComponent prefixes A on the first row and B/C on
+			// the last row of a tool-free reply, before Markdown's wrap metadata.
+			const assistant: Component = {
+				render(width) {
+					const rows = md.render(width).slice();
+					rows[0] = `\x1b]133;A${terminator}${rows[0]}`;
+					rows[rows.length - 1] = `\x1b]133;B${terminator}\x1b]133;C${terminator}${rows.at(-1)}`;
+					return rows;
+				},
+				invalidate() {
+					md.invalidate();
+				},
+			};
+			tui.setLayoutRoot(direct ? assistant : new ScrollView(assistant));
+			tui.renderNow();
+			selectAll(terminal, plain);
+			assert.deepEqual(copies, [PARAGRAPH]);
+			assert.ok(terminal.writes.every((write) => !write.includes("\x1b]133;")));
+		});
+	}
+}
+
+test("screen selection cannot join two independently clipped ScrollViews", (t) => {
+	const { tui, terminal, md, plain, copies } = fixture(t, PARAGRAPH);
+	const first = new ScrollView(md);
+	const second = new ScrollView(new Markdown(PARAGRAPH, 1, 0, defaultMarkdownTheme));
+	tui.setLayoutRoot(
+		new VStack([{ component: first, basis: 2 }, { component: second, basis: 2 }, new Text("dock", 0, 0)]),
+	);
+	tui.renderNow();
+	second.scrollTo(1);
+	tui.renderNow();
+	// Start in the dock so the drag uses screen coordinates, not either
+	// ScrollView's contiguous raw rows. Reverse selection is intentional.
+	drag(terminal, { row: 4, col: 3 }, { row: 0, col: 1 });
+	assert.deepEqual(copies, [`${plain[0].trim()} ${plain[1].trim()}\n${plain[1].trimEnd()} ${plain[2].trim()}\ndock`]);
+});
+
 for (const rawScrollRows of [false, true]) {
 	test(`clipped Markdown cannot join the next component (raw ScrollView rows=${rawScrollRows})`, (t) => {
 		const { tui, terminal, md, plain, copies } = fixture(t, PARAGRAPH);
@@ -389,6 +431,9 @@ test("copy joins require paired markers and allow only invisible styling or padd
 	assert.equal(getSoftWrapJoin(end, "second"), "none");
 	assert.equal(getSoftWrapJoin("first", start), "none");
 	assert.equal(getSoftWrapJoin(`${end} \x1b[49m\x1b]8;;\x07`, `\x1b[44m  ${start}`), "space");
+	assert.equal(getSoftWrapJoin(end, `\x1b]133;B\x07\x1b[44m \x1b]133;C\x1b\\${start}`), "space");
+	assert.equal(getSoftWrapJoin(end, `| \x1b]133;B\x07${start}`), "none");
+	assert.equal(getSoftWrapJoin(end, `\x1b]133;D\x07${start}`), "none");
 	assert.equal(getSoftWrapJoin(`${end} |`, start), "none");
 	assert.equal(getSoftWrapJoin(end, `| ${start}`), "none");
 	assert.equal(getSoftWrapJoin(`${end}\x1b[2K`, start), "none");

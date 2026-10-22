@@ -13,6 +13,7 @@ import {
 	getScrollbarGeometry,
 	getScrollViewBox,
 	getScrollViewsAt,
+	type LayoutBox,
 	type LayoutFrame,
 	renderLayoutFrame,
 	type ScrollbarGeometry,
@@ -1739,12 +1740,37 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
 		const screenWrapMarkers = nextLayout.lines.map(() => "");
 		const screenStartMarkers = nextLayout.lines.map(() => "");
 		if (!this.hasOverlay()) {
+			// A pair on adjacent screen rows can belong to different clipped boxes.
+			// Mirror layout's paint order and join only consecutive source rows from
+			// one full-width box. Partial-width paints conservatively invalidate it.
+			const sources: Array<{ box: LayoutBox; index: number } | undefined> = [];
+			const collectSources = (box: LayoutBox): void => {
+				if (box.lines && box.clip.width > 0) {
+					const first = Math.max(box.rect.y, box.clip.y, 0);
+					const last = Math.min(box.rect.y + box.rect.height, box.clip.y + box.clip.height, height);
+					for (let row = first; row < last; row++) {
+						const index = (box.lineOffset ?? 0) + row - box.rect.y;
+						if (box.lines[index] === undefined) continue;
+						sources[row] =
+							box.rect.x === 0 && box.clip.x === 0 && box.rect.width >= width && box.clip.width >= width
+								? { box, index }
+								: undefined;
+					}
+				}
+				for (const child of box.children) collectSources(child);
+			};
+			collectSources(nextLayout.root);
 			for (let row = 0; row + 1 < nextLayout.lines.length; row++) {
 				const line = nextLayout.lines[row];
 				const next = nextLayout.lines[row + 1];
 				const join = getSoftWrapJoin(line, next);
+				const source = sources[row];
+				const nextSource = sources[row + 1];
 				if (
 					join === "none" ||
+					!source ||
+					source.box !== nextSource?.box ||
+					source.index + 1 !== nextSource?.index ||
 					visibleWidth(line) > width ||
 					visibleWidth(next) > width ||
 					stripTerminalSequences(line) !== stripTerminalSequences(screen[row] ?? "") ||
