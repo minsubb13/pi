@@ -2,10 +2,13 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Terminal as XtermTerminalType } from "@xterm/headless";
 import { Markdown } from "../src/components/markdown.ts";
+import { Text } from "../src/components/text.ts";
+import { VStack } from "../src/components/v-stack.ts";
 import {
 	areSoftWrapMarkersEnabled,
 	extractSoftWrapRows,
 	SOFT_WRAP_MARKER,
+	SOFT_WRAP_START_MARKER,
 	setSoftWrapMarkersEnabled,
 } from "../src/soft-wrap-output.ts";
 import { encodeKitty } from "../src/terminal-image.ts";
@@ -46,7 +49,7 @@ class Rows implements Component {
 }
 
 function marked(text: string, width: number): string {
-	return text.padEnd(width) + SOFT_WRAP_MARKER;
+	return SOFT_WRAP_START_MARKER + text.padEnd(width) + SOFT_WRAP_MARKER;
 }
 
 function flags(terminal: RecordingTerminal, count: number): boolean[] {
@@ -84,7 +87,7 @@ test("only full-width marked rows with a non-image successor can continue", () =
 	const image = encodeKitty("AAAA", { columns: 2, rows: 1, imageId: 42, moveCursor: false });
 	const input = [
 		marked("prose", 20),
-		`short${SOFT_WRAP_MARKER}`,
+		`${SOFT_WRAP_START_MARKER}short${SOFT_WRAP_MARKER}`,
 		marked("before image", 20),
 		image + SOFT_WRAP_MARKER,
 		marked("last", 20),
@@ -95,15 +98,39 @@ test("only full-width marked rows with a non-image successor can continue", () =
 	assert.deepEqual(extractSoftWrapRows(input, 20, false).continued, [false, false, false, false, false]);
 	assert.ok(input[0].includes(SOFT_WRAP_MARKER), "extraction must not mutate cached component output");
 	assert.deepEqual(
-		extractSoftWrapRows([`${marked("boxed", 18)} |`, "next"], 20, true).continued,
+		extractSoftWrapRows([`${marked("boxed", 18)} |`, `${SOFT_WRAP_START_MARKER}next`], 20, true).continued,
 		[false, false],
 		"a wrapper that adds a border must not join its rows",
+	);
+	assert.deepEqual(
+		extractSoftWrapRows([marked("first", 20), "unrelated"], 20, true).continued,
+		[false, false],
+		"a marked predecessor without a paired successor cannot join unrelated text",
 	);
 	assert.deepEqual(
 		extractSoftWrapRows([marked("first", 20), ""], 20, true).continued,
 		[false, false],
 		"an empty successor cannot trigger terminal autowrap",
 	);
+});
+
+test("a truncated VStack paragraph cannot autowrap into its next component", async () => {
+	const terminal = new RecordingTerminal(24, 12);
+	const tui = new TuiMainScreen(terminal);
+	tui.addChild(
+		new VStack([
+			{ component: new Markdown(PARAGRAPH, 1, 0, defaultMarkdownTheme), basis: 2 },
+			new Text("dock", 0, 0),
+		]),
+	);
+	try {
+		tui.renderNow();
+		await terminal.flush();
+		assert.deepEqual(flags(terminal, 3), [false, true, false]);
+		assert.deepEqual(tui.captureRenderState().previousContinued, [true, false, false]);
+	} finally {
+		tui.stop();
+	}
 });
 
 test("standalone Markdown stays unmarked, including after a regular render and after render errors", () => {
@@ -212,7 +239,7 @@ test("a changed continuation row redraws the entire logical line contiguously", 
 	const terminal = new RecordingTerminal(20, 8);
 	const tui = new TuiMainScreen(terminal);
 	const rows = new Rows();
-	rows.lines = [marked("first", 20), marked("middle", 20), "last".padEnd(20), "separate"];
+	rows.lines = [marked("first", 20), marked("middle", 20), SOFT_WRAP_START_MARKER + "last".padEnd(20), "separate"];
 	tui.addChild(rows);
 	try {
 		tui.renderNow();
@@ -239,12 +266,12 @@ test("a short final continuation erases old content without breaking the incomin
 	const terminal = new RecordingTerminal(20, 8);
 	const tui = new TuiMainScreen(terminal);
 	const rows = new Rows();
-	rows.lines = [marked("first", 20), "long final text", "neighbor"];
+	rows.lines = [marked("first", 20), `${SOFT_WRAP_START_MARKER}long final text`, "neighbor"];
 	tui.addChild(rows);
 	try {
 		tui.renderNow();
 		await terminal.flush();
-		rows.lines[1] = "short";
+		rows.lines[1] = `${SOFT_WRAP_START_MARKER}short`;
 		tui.renderNow();
 		await terminal.flush();
 		assert.equal(terminal.buffer.getLine(1)?.translateToString(true).trimEnd(), "short");
@@ -307,7 +334,7 @@ test("shrinking a wrapped paragraph resets Ghostty joins and preserves the scree
 	rows.lines = [
 		marked("first", 20),
 		marked("middle", 20),
-		"last".padEnd(20),
+		SOFT_WRAP_START_MARKER + "last".padEnd(20),
 		"neighbor".padEnd(20),
 		"BOTTOM".padEnd(20),
 	];
@@ -343,12 +370,12 @@ test("a changed join with identical row text resets only hard boundaries and reb
 	const terminal = new RecordingTerminal(20, 8);
 	const tui = new TuiMainScreen(terminal);
 	const rows = new Rows();
-	rows.lines = [marked("first", 20), marked("second", 20), "third".padEnd(20), "fourth"];
+	rows.lines = [marked("first", 20), marked("second", 20), SOFT_WRAP_START_MARKER + "third".padEnd(20), "fourth"];
 	tui.addChild(rows);
 	try {
 		tui.renderNow();
 		await terminal.flush();
-		rows.lines[1] = "second".padEnd(20);
+		rows.lines[1] = SOFT_WRAP_START_MARKER + "second".padEnd(20);
 		tui.renderNow();
 		await terminal.flush();
 		assert.deepEqual(flags(terminal, 4), [false, true, false, false]);
@@ -365,7 +392,7 @@ test("deleting a wrapped tail, clearing to empty, and rendering again leaves no 
 	tui.addChild(rows);
 	try {
 		for (const lines of [
-			[marked("first", 20), marked("second", 20), "third".padEnd(20)],
+			[marked("first", 20), marked("second", 20), SOFT_WRAP_START_MARKER + "third".padEnd(20)],
 			["short".padEnd(20)],
 			[],
 			["new first".padEnd(20), "new second".padEnd(20)],
@@ -409,13 +436,19 @@ test("a paragraph beginning above the viewport redraws from the top visible row 
 	const terminal = new RecordingTerminal(20, 3);
 	const tui = new TuiMainScreen(terminal);
 	const rows = new Rows();
-	rows.lines = [marked("first", 20), marked("second", 20), marked("third", 20), "fourth".padEnd(20), "tail"];
+	rows.lines = [
+		marked("first", 20),
+		marked("second", 20),
+		marked("third", 20),
+		SOFT_WRAP_START_MARKER + "fourth".padEnd(20),
+		"tail",
+	];
 	tui.addChild(rows);
 	try {
 		tui.renderNow();
 		await terminal.flush();
 		terminal.writes = [];
-		rows.lines[3] = "changed fourth".padEnd(20);
+		rows.lines[3] = SOFT_WRAP_START_MARKER + "changed fourth".padEnd(20);
 		tui.renderNow();
 		await terminal.flush();
 		assert.equal(tui.fullRedraws, 1);
@@ -458,7 +491,7 @@ test("forced redraw replaces previously wrapped screen rows and keeps separate l
 	const terminal = new RecordingTerminal(20, 5);
 	const tui = new TuiMainScreen(terminal);
 	const rows = new Rows();
-	rows.lines = [marked("first", 20), "second".padEnd(20)];
+	rows.lines = [marked("first", 20), SOFT_WRAP_START_MARKER + "second".padEnd(20)];
 	tui.addChild(rows);
 	try {
 		tui.renderNow();
@@ -478,7 +511,7 @@ test("capture and restore retain continuation metadata", async () => {
 	const terminal = new RecordingTerminal(20, 8);
 	const first = new TuiMainScreen(terminal);
 	const rows = new Rows();
-	rows.lines = [marked("first", 20), "second".padEnd(20)];
+	rows.lines = [marked("first", 20), SOFT_WRAP_START_MARKER + "second".padEnd(20)];
 	first.addChild(rows);
 	first.renderNow();
 	await terminal.flush();
@@ -546,5 +579,7 @@ test("the base renderer strips markers as a safety net for fullscreen and overla
 		}
 	}
 	const tui = new ResetOnlyTui(new RecordingTerminal());
-	assert.deepEqual(tui.resetLines([`text${SOFT_WRAP_MARKER}${CURSOR_MARKER}`]), [`text${CURSOR_MARKER}${RESET}`]);
+	assert.deepEqual(tui.resetLines([`${SOFT_WRAP_START_MARKER}text${SOFT_WRAP_MARKER}${CURSOR_MARKER}`]), [
+		`text${CURSOR_MARKER}${RESET}`,
+	]);
 });

@@ -1,7 +1,12 @@
 import { Marked, type Token, Tokenizer, type TokenizerExtension, type Tokens } from "marked";
 import markedCjkFriendly from "marked-cjk-friendly";
 import { renderLatex } from "../latex.ts";
-import { areSoftWrapMarkersEnabled, SOFT_WRAP_MARKER, SOFT_WRAP_SPACE_MARKER } from "../soft-wrap-output.ts";
+import {
+	areSoftWrapMarkersEnabled,
+	SOFT_WRAP_MARKER,
+	SOFT_WRAP_SPACE_MARKER,
+	SOFT_WRAP_START_MARKER,
+} from "../soft-wrap-output.ts";
 import { getCapabilities, hyperlink, isImageLine } from "../terminal-image.ts";
 import type { Component } from "../tui.ts";
 import { applyBackgroundToLine, flattenLines, visibleWidth, wrapTextWithAnsi } from "../utils.ts";
@@ -392,14 +397,15 @@ export class Markdown implements Component {
 
 			const lineWithMargins = leftMargin + line + rightMargin;
 			const marker = continued[index] ? (joinSpaces[index] ? SOFT_WRAP_SPACE_MARKER : "") + SOFT_WRAP_MARKER : "";
+			const startMarker = index > 0 && continued[index - 1] ? SOFT_WRAP_START_MARKER : "";
 
 			if (bgFn) {
-				contentLines.push(applyBackgroundToLine(lineWithMargins, width, bgFn) + marker);
+				contentLines.push(startMarker + applyBackgroundToLine(lineWithMargins, width, bgFn) + marker);
 			} else {
 				// No background - just pad to width
 				const visibleLen = visibleWidth(lineWithMargins);
 				const paddingNeeded = Math.max(0, width - visibleLen);
-				contentLines.push(lineWithMargins + " ".repeat(paddingNeeded) + marker);
+				contentLines.push(startMarker + lineWithMargins + " ".repeat(paddingNeeded) + marker);
 			}
 		}
 

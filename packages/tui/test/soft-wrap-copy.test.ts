@@ -1,14 +1,17 @@
 import assert from "node:assert/strict";
 import { type TestContext, test } from "node:test";
 import { findAltScreenSearchMatches } from "../src/alt-screen-search.ts";
+import { Box } from "../src/components/box.ts";
 import { Markdown } from "../src/components/markdown.ts";
 import { ScrollView } from "../src/components/scroll-view.ts";
 import { Text } from "../src/components/text.ts";
 import { VStack } from "../src/components/v-stack.ts";
 import {
 	areSoftWrapMarkersEnabled,
+	getSoftWrapJoin,
 	SOFT_WRAP_MARKER,
 	SOFT_WRAP_SPACE_MARKER,
+	SOFT_WRAP_START_MARKER,
 	setSoftWrapMarkersEnabled,
 } from "../src/soft-wrap-output.ts";
 import { getCapabilities, setCapabilities } from "../src/terminal-image.ts";
@@ -83,7 +86,12 @@ for (const implicit of [false, true]) {
 			plain.map((line) => line.trimEnd()),
 		);
 		assert.ok(
-			terminal.writes.every((write) => !write.includes(SOFT_WRAP_MARKER) && !write.includes(SOFT_WRAP_SPACE_MARKER)),
+			terminal.writes.every(
+				(write) =>
+					!write.includes(SOFT_WRAP_MARKER) &&
+					!write.includes(SOFT_WRAP_SPACE_MARKER) &&
+					!write.includes(SOFT_WRAP_START_MARKER),
+			),
 		);
 		assert.equal(areSoftWrapMarkersEnabled(), false);
 	});
@@ -184,6 +192,48 @@ test("Markdown outside a ScrollView also joins its screen selection", (t) => {
 	tui.renderNow();
 	selectAll(terminal, plain);
 	assert.deepEqual(copies, [PARAGRAPH]);
+});
+
+for (const rawScrollRows of [false, true]) {
+	test(`clipped Markdown cannot join the next component (raw ScrollView rows=${rawScrollRows})`, (t) => {
+		const { tui, terminal, md, plain, copies } = fixture(t, PARAGRAPH);
+		const stack = new VStack([{ component: md, basis: 2 }, new Text("dock", 0, 0)]);
+		// A plain wrapper makes ScrollView consume VStack.render's truncated rows.
+		tui.setLayoutRoot(
+			rawScrollRows ? new ScrollView({ render: (width) => stack.render(width), invalidate() {} }) : stack,
+		);
+		tui.renderNow();
+		drag(terminal, { row: 0, col: 1 }, { row: 2, col: 3 });
+		assert.deepEqual(copies, [`${plain[0].trim()} ${plain[1].trim()}\ndock`]);
+	});
+}
+
+for (const direct of [false, true]) {
+	for (const background of [false, true]) {
+		test(`Box padding and background preserve fullscreen paragraph joins (direct=${direct}, background=${background})`, (t) => {
+			const { tui, terminal, md, copies } = fixture(t, PARAGRAPH);
+			const box = new Box(2, 0, background ? (text) => `\x1b[44m${text}\x1b[49m` : undefined);
+			box.addChild(md);
+			tui.setLayoutRoot(direct ? box : new ScrollView(box));
+			tui.renderNow();
+			const rows = box.render(24).map(stripTerminalSequences);
+			drag(terminal, { row: 0, col: 3 }, { row: rows.length - 1, col: rows.at(-1)!.trimEnd().length - 1 });
+			assert.deepEqual(copies, [PARAGRAPH]);
+		});
+	}
+}
+
+test("a bordered Markdown wrapper keeps hard boundaries", (t) => {
+	const { tui, terminal, md, copies } = fixture(t, PARAGRAPH);
+	const bordered: Component = {
+		render: (width) => md.render(width - 4).map((line) => `| ${line} |`),
+		invalidate() {},
+	};
+	tui.setLayoutRoot(new ScrollView(bordered));
+	tui.renderNow();
+	const rows = bordered.render(24).map(stripTerminalSequences);
+	drag(terminal, { row: 0, col: 0 }, { row: rows.length - 1, col: 23 });
+	assert.deepEqual(copies, [rows.join("\n")]);
 });
 
 test("overlay screen selections cannot join unrelated rows", (t) => {
@@ -329,6 +379,20 @@ test("copy join metadata reconstructs styled text at different word and token bo
 			);
 		}
 	}
+});
+
+test("copy joins require paired markers and allow only invisible styling or padding around them", () => {
+	const end = `first${SOFT_WRAP_SPACE_MARKER}${SOFT_WRAP_MARKER}`;
+	const start = `${SOFT_WRAP_START_MARKER} second`;
+	assert.equal(getSoftWrapJoin(end, start), "space");
+	assert.equal(getSoftWrapJoin(`first${SOFT_WRAP_MARKER}`, start), "join");
+	assert.equal(getSoftWrapJoin(end, "second"), "none");
+	assert.equal(getSoftWrapJoin("first", start), "none");
+	assert.equal(getSoftWrapJoin(`${end} \x1b[49m\x1b]8;;\x07`, `\x1b[44m  ${start}`), "space");
+	assert.equal(getSoftWrapJoin(`${end} |`, start), "none");
+	assert.equal(getSoftWrapJoin(end, `| ${start}`), "none");
+	assert.equal(getSoftWrapJoin(`${end}\x1b[2K`, start), "none");
+	assert.equal(getSoftWrapJoin(end, `${SOFT_WRAP_START_MARKER}  `), "none");
 });
 
 test("wrap join metadata is row-aligned and distinguishes whitespace from token/CJK breaks", () => {

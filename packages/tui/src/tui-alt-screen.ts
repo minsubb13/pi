@@ -20,8 +20,10 @@ import {
 import { getLayoutNode } from "./layout-node.ts";
 import {
 	areSoftWrapMarkersEnabled,
+	getSoftWrapJoin,
 	SOFT_WRAP_MARKER,
 	SOFT_WRAP_SPACE_MARKER,
+	SOFT_WRAP_START_MARKER,
 	setSoftWrapMarkersEnabled,
 } from "./soft-wrap-output.ts";
 import type { Terminal } from "./terminal.ts";
@@ -1476,15 +1478,10 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
 				const previous = sourceLines[row - 1] ?? "";
 				// Raw ScrollView rows and unobscured screen rows retain Markdown's
 				// wrap metadata. Overlay selections keep hard row boundaries.
-				const continued =
-					process.env.PI_TUI_SOFT_WRAP !== "0" &&
-					previous.endsWith(SOFT_WRAP_MARKER) &&
-					!isImageLine(previous) &&
-					!isImageLine(line) &&
-					stripTerminalSequences(line).trim().length > 0;
-				if (continued) {
+				const join = process.env.PI_TUI_SOFT_WRAP !== "0" ? getSoftWrapJoin(previous, line) : "none";
+				if (join !== "none") {
 					selected = selected.trimStart();
-					if (selected && text && previous.includes(SOFT_WRAP_SPACE_MARKER)) text += " ";
+					if (selected && text && join === "space") text += " ";
 				} else {
 					text += "\n";
 				}
@@ -1739,15 +1736,25 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
 		// Highlight slicing drops trailing markers. Recover them from the raw layout,
 		// but only if neither selected row's visible text was overwritten (e.g. by a
 		// flash). Screen copy still uses the normalized/clamped terminal rows below.
-		const screenWrapMarkers = nextLayout.lines.map((line, row) =>
-			!this.hasOverlay() &&
-			visibleWidth(line) <= width &&
-			line.endsWith(SOFT_WRAP_MARKER) &&
-			stripTerminalSequences(line) === stripTerminalSequences(screen[row] ?? "") &&
-			stripTerminalSequences(nextLayout.lines[row + 1] ?? "") === stripTerminalSequences(screen[row + 1] ?? "")
-				? (line.includes(SOFT_WRAP_SPACE_MARKER) ? SOFT_WRAP_SPACE_MARKER : "") + SOFT_WRAP_MARKER
-				: "",
-		);
+		const screenWrapMarkers = nextLayout.lines.map(() => "");
+		const screenStartMarkers = nextLayout.lines.map(() => "");
+		if (!this.hasOverlay()) {
+			for (let row = 0; row + 1 < nextLayout.lines.length; row++) {
+				const line = nextLayout.lines[row];
+				const next = nextLayout.lines[row + 1];
+				const join = getSoftWrapJoin(line, next);
+				if (
+					join === "none" ||
+					visibleWidth(line) > width ||
+					visibleWidth(next) > width ||
+					stripTerminalSequences(line) !== stripTerminalSequences(screen[row] ?? "") ||
+					stripTerminalSequences(next) !== stripTerminalSequences(screen[row + 1] ?? "")
+				)
+					continue;
+				screenWrapMarkers[row] = (join === "space" ? SOFT_WRAP_SPACE_MARKER : "") + SOFT_WRAP_MARKER;
+				screenStartMarkers[row + 1] = SOFT_WRAP_START_MARKER;
+			}
+		}
 		screen = this.applyLineResets(screen).map((line) => {
 			if (isImageLine(line) || visibleWidth(line) <= width) return line;
 			return sliceByColumn(line, 0, width, true);
@@ -1832,7 +1839,9 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
 		this.terminal.write(buffer);
 
 		this.previousScreen = screen;
-		this.previousSelectionScreen = screen.map((line, row) => line + screenWrapMarkers[row]);
+		this.previousSelectionScreen = screen.map(
+			(line, row) => (screenStartMarkers[row] ?? "") + line + (screenWrapMarkers[row] ?? ""),
+		);
 		this.previousScreenWidth = width;
 		this.previousScreenHeight = height;
 		this.currentLayout = nextLayout;
