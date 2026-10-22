@@ -37,6 +37,19 @@ Previous run record: docs/2026-10-21-soft-wrap-output-plan.md (probe verdicts, r
   `tui-alt-screen.test.ts` for mouse drag + `copySelection` capture): contract condition 4
   list. Negative control: show the main join test fails without the join.
 
+Supervision pointers (Opus) for the executor:
+- Components render inside `renderLayoutFrame(...)` in `TuiAltScreen.doRender`
+  (`tui-alt-screen.ts` ~1684, via `layout.ts` `renderCached`), not via `this.render()`.
+  Enable markers around both `renderLayoutFrame` calls only (scoped, `finally`). Leave the
+  `stop()` transcript dump (`this.render(width)` ~410) without markers.
+- Check every consumer of raw `scrollContentLines` / screen rows that could see the marker
+  (search `refreshSearch`, `applySearchHighlights`, `applySelection`, word/line selection,
+  link detection): APC is zero-width and `stripTerminalSequences` removes it, but prove
+  search hits and double-click word selection are unchanged with a test.
+- The layout cache is per frame; Markdown's own cache keys on the marker flag already.
+- Remember `previousScreen` rows are post-`applyLineResets` (markers stripped); a
+  selection outside a ScrollView keeps today's behavior unless a per-row flag is kept.
+
 ### U2
 `npm run build:offline`; operator: new pi (default fullscreen), drag over a multi-row
 assistant paragraph and two paragraphs, paste into TextEdit, in Ghostty and herdr.
