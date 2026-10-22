@@ -31,6 +31,7 @@ export function createProbe(columns) {
 		{ id: "c-before", title: "C before: paragraph before contiguous redraw", output: header("C before: paragraph before redraw", "Copy P only now; compare with the next stage.") + baseline },
 		{ id: "c-after", title: "C after: whole paragraph redrawn contiguously", output: `${origin}\x1b[2K${padded}\r\n\x1b[2;1HCopy P again: one line? Extra spaces?\x1b[K\x1b[12;1H` },
 	];
+	const shrinkRedraw = {};
 	for (const variant of [1, 2, 3]) {
 		stages.push({ id: `d${variant}-before`, title: `D${variant} before: P wraps, Q is separate`, output: header(`D${variant} before: P wraps, Q is separate`, "Copy P and Q: P should join internally; Q should stay separate.") + baseline });
 		let redraw = origin;
@@ -41,9 +42,17 @@ export function createProbe(columns) {
 			if (variant === 2) redraw += " ".repeat(columns - text.length);
 			redraw += "\r\n";
 		}
+		shrinkRedraw[variant] = redraw;
 		stages.push({ id: `d${variant}-after`, title: `D${variant} after: ${["", "ordinary erase/rewrite", "full-width rewrite then CR/LF", "delete+insert line then rewrite"][variant]}`, output: `${redraw}\x1b[2;1HCopy shortened P and Q: MUST be two separate lines.\x1b[K\x1b[12;1H` });
 	}
-	return { columns, rows, short, hard, stages };
+	const retitle = (title, instruction) => `\x1b[1;1H${title}\x1b[K\x1b[2;1H${instruction}\x1b[K`;
+	// Default operator run: pi row shape (A), contiguous redraw (C after), pi-like shrink (D2 after).
+	const quickStages = [
+		{ id: "a", title: "Screen 1/3", output: header("1/3: pi-shaped paragraph", "Copy CASE_P_BEGIN..CASE_P_END: one line? Extra spaces?") + baseline },
+		{ id: "c-after", title: "Screen 2/3", output: `${origin}\x1b[2K${padded}\r\n${retitle("2/3: paragraph redrawn", "Copy CASE_P_BEGIN..CASE_P_END again: one line?")}\x1b[12;1H` },
+		{ id: "d2-after", title: "Screen 3/3", output: `${shrinkRedraw[2]}${retitle("3/3: paragraph shortened", "Copy CASE_P_BEGIN..CASE_Q_END: MUST be two separate lines.")}\x1b[12;1H` },
+	];
+	return { columns, rows, short, hard, stages, quickStages };
 }
 
 async function waitForEnter() {
@@ -56,8 +65,8 @@ async function waitForEnter() {
 
 async function main() {
 	if (process.argv.includes("--help")) {
-		console.log("Run: node scripts/personal/soft-wrap-probe-v2.mjs");
-		console.log("Copy P for A/B/C, P+Q for D1/D2/D3, before and after Enter.");
+		console.log("Run: node scripts/personal/soft-wrap-probe-v2.mjs [--full]");
+		console.log("Default: 3 screens (pi row shape, redraw, shrink). --full: 10 screens A/B/C/D1-D3.");
 		console.log("Report internal newlines, extra spaces, and whether separate P/Q wrongly join.");
 		console.log("Do not paste into pi: paste normalization can hide newlines. Use a plain editor.");
 		return;
@@ -74,7 +83,7 @@ async function main() {
 	process.stdin.setRawMode(true);
 	process.stdin.resume();
 	try {
-		for (const stage of probe.stages) {
+		for (const stage of process.argv.includes("--full") ? probe.stages : probe.quickStages) {
 			process.stdout.write(stage.output);
 			process.stdout.write(`\x1b[12;1H${stage.title}\x1b[K\r\nEnter for next stage; Ctrl+C cancels.\x1b[K`);
 			await waitForEnter();

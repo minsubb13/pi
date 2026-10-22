@@ -77,7 +77,26 @@ and the commit SHA. Save output to `docs/2026-10-21-soft-wrap-output-review.md`.
 
 Operator results pending. Script self-checks are not Ghostty/herdr copy evidence.
 
-Run in Ghostty alone, then herdr inside Ghostty (80+ columns, 16+ rows):
+Operator decision 2026-10-21 (answer "1번" to the reduction question): run only the
+3-screen quick probe, in Ghostty alone. herdr is not probed; it is observed once in the U3
+smoke test. This narrows contract condition 1 (both environments, cases a-d) to Ghostty
+cases (a), (c), and (d, pi-like D2 variant); B, D1, and D3 run (`--full`) only if screen 1
+shows extra spaces or screen 3 shows a wrong join.
+
+Quick run (default):
+
+```sh
+node /home/remote3/dev/pi/scripts/personal/soft-wrap-probe-v2.mjs
+```
+
+Report: `1: one line/multiple lines, spaces normal/extra; 2: one line/multiple lines;
+3: two lines/joined`.
+
+Data point (tmux 100x20, `capture-pane -J`, verified): screen 1 joins P into one line but
+keeps the padding spaces at each join (`spaces.   Terminal`); screen 3 keeps P and Q apart.
+tmux is not a target terminal; this only predicts that extra spaces are likely.
+
+Full run reference (not required by the decision above), Ghostty alone, then herdr inside Ghostty (80+ columns, 16+ rows):
 
 ```sh
 node /home/remote3/dev/pi/scripts/personal/soft-wrap-probe-v2.mjs
@@ -116,3 +135,4 @@ heavier reset. Script reviewed: stage bytes match the U1 design (a)-(d).
 ## Progress log
 - 2026-10-21 17:27 approval: operator said "Go ahead" to the scope report.
 - U1 implemented by GPT-6.1-sol: new `soft-wrap-probe-v2.mjs` with 10 deterministic stages and TTY/resize guards; v1 unchanged. New xterm self-tests at 80, 181, and 204 columns verify visual row text, wrap flags, real written vs erased gap cells, and hard P/Q separation after all three candidate shrink redraws. New+old probe tests: 8 pass / 0 fail (153.994055ms, verified). `npm run check` passes clean, no formatting fixes (verified). xterm results validate only the script, not terminal clipboard semantics. No renderer change or personal-build replacement yet.
+- Probe reduced at operator request: default 3-screen quick mode (A, C after, D2 after) added, `--full` keeps 10 screens. Probe tests 11 pass / 0 fail (177.861121ms, verified). Visual check in tmux 100x20 passed for all 3 screens.
