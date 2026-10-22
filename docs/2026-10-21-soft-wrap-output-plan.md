@@ -96,6 +96,34 @@ Data point (tmux 100x20, `capture-pane -J`, verified): screen 1 joins P into one
 keeps the padding spaces at each join (`spaces.   Terminal`); screen 3 keeps P and Q apart.
 tmux is not a target terminal; this only predicts that extra spaces are likely.
 
+### Ghostty quick run result (operator, 2026-10-21)
+
+Operator pasted the three copies into pi's message box (not a plain editor), so pi's paste
+unwrap could hide hard breaks. Reading each result with that in mind:
+- Screen 1 (A): P is one line with extra spaces at each join (`or       padding`,
+  `or    padding`). pi's unwrap cannot create runs of spaces (it trims and joins with one
+  space), so the joins and spaces came from Ghostty. The single space in
+  `CASE_P_END CASE_Q_BEGIN` is explained by pi's unwrap: replaying `P + "\n" + Q` through
+  `unwrapSoftWrappedPaste` joins it the same way (verified). Not evidence of a P/Q join.
+- Screen 2 (C after): same as screen 1. One line, extra spaces.
+- Screen 3 (D2 after): WRONG JOIN. P and Q came out on one line with a run of 129 spaces
+  between them. 45 (short row) + 129 - 1 (Q's margin space) = 173, which matches a padded
+  full-width row in a 173-column Ghostty (inferred). Replaying a hard break through
+  pi's unwrap keeps the two lines apart (verified), so this join came from Ghostty: a row that
+  was autowrapped keeps its join after `\x1b[2K` + full-width rewrite + CR/LF.
+
+Gate status: Ghostty passes (a) one line and (c) redraw. (d) fails for D2. Per the decision,
+the follow-up runs B (erased padding) plus D1 and D3 (`--followup`, 3 screens; script
+revision 1 of 2).
+
+Follow-up run, Ghostty, copy into TextEdit (not pi):
+
+```sh
+node /home/remote3/dev/pi/scripts/personal/soft-wrap-probe-v2.mjs --followup
+```
+
+Report: `1: one line/multiple lines, spaces normal/extra; 2: two lines/joined; 3: two lines/joined`.
+
 Full run reference (not required by the decision above), Ghostty alone, then herdr inside Ghostty (80+ columns, 16+ rows):
 
 ```sh
@@ -136,3 +164,4 @@ heavier reset. Script reviewed: stage bytes match the U1 design (a)-(d).
 - 2026-10-21 17:27 approval: operator said "Go ahead" to the scope report.
 - U1 implemented by GPT-6.1-sol: new `soft-wrap-probe-v2.mjs` with 10 deterministic stages and TTY/resize guards; v1 unchanged. New xterm self-tests at 80, 181, and 204 columns verify visual row text, wrap flags, real written vs erased gap cells, and hard P/Q separation after all three candidate shrink redraws. New+old probe tests: 8 pass / 0 fail (153.994055ms, verified). `npm run check` passes clean, no formatting fixes (verified). xterm results validate only the script, not terminal clipboard semantics. No renderer change or personal-build replacement yet.
 - Probe reduced at operator request: default 3-screen quick mode (A, C after, D2 after) added, `--full` keeps 10 screens. Probe tests 11 pass / 0 fail (177.861121ms, verified). Visual check in tmux 100x20 passed for all 3 screens.
+- Ghostty quick result recorded (screen 3 wrong join, extra spaces at joins). Added `--followup` (B, D1, D3) as probe revision 1 of 2. Probe tests 14 pass / 0 fail (196.851527ms, verified); tmux 100x20 visual check of the 3 follow-up screens passed.

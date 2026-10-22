@@ -52,7 +52,14 @@ export function createProbe(columns) {
 		{ id: "c-after", title: "Screen 2/3", output: `${origin}\x1b[2K${padded}\r\n${retitle("2/3: paragraph redrawn", "Copy CASE_P_BEGIN..CASE_P_END again: one line?")}\x1b[12;1H` },
 		{ id: "d2-after", title: "Screen 3/3", output: `${shrinkRedraw[2]}${retitle("3/3: paragraph shortened", "Copy CASE_P_BEGIN..CASE_Q_END: MUST be two separate lines.")}\x1b[12;1H` },
 	];
-	return { columns, rows, short, hard, stages, quickStages };
+	// Follow-up after quick run (Ghostty 2026-10-21: extra spaces, D2 wrong join):
+	// sparse padding (B), ordinary rewrite (D1), delete+insert line rewrite (D3).
+	const followupStages = [
+		{ id: "b", title: "Screen 1/3", output: header("1/3: erased padding", "Copy CASE_P_BEGIN..CASE_P_END: one line? Extra spaces?") + sparse + `\r\n ${hard}\r\n` },
+		{ id: "d1-after", title: "Screen 2/3", output: `${shrinkRedraw[1]}${retitle("2/3: shortened (plain rewrite)", "Copy CASE_P_BEGIN..CASE_Q_END: MUST be two separate lines.")}\x1b[12;1H` },
+		{ id: "d3-after", title: "Screen 3/3", output: header("3/3: shortened (delete+insert line)", "Copy CASE_P_BEGIN..CASE_Q_END: MUST be two separate lines.") + baseline + shrinkRedraw[3] + "\x1b[12;1H" },
+	];
+	return { columns, rows, short, hard, stages, quickStages, followupStages };
 }
 
 async function waitForEnter() {
@@ -65,7 +72,8 @@ async function waitForEnter() {
 
 async function main() {
 	if (process.argv.includes("--help")) {
-		console.log("Run: node scripts/personal/soft-wrap-probe-v2.mjs [--full]");
+		console.log("Run: node scripts/personal/soft-wrap-probe-v2.mjs [--followup|--full]");
+		console.log("--followup: 3 screens (erased padding, plain shrink rewrite, delete+insert shrink rewrite).");
 		console.log("Default: 3 screens (pi row shape, redraw, shrink). --full: 10 screens A/B/C/D1-D3.");
 		console.log("Report internal newlines, extra spaces, and whether separate P/Q wrongly join.");
 		console.log("Do not paste into pi: paste normalization can hide newlines. Use a plain editor.");
@@ -83,7 +91,8 @@ async function main() {
 	process.stdin.setRawMode(true);
 	process.stdin.resume();
 	try {
-		for (const stage of process.argv.includes("--full") ? probe.stages : probe.quickStages) {
+		const stages = process.argv.includes("--full") ? probe.stages : process.argv.includes("--followup") ? probe.followupStages : probe.quickStages;
+		for (const stage of stages) {
 			process.stdout.write(stage.output);
 			process.stdout.write(`\x1b[12;1H${stage.title}\x1b[K\r\nEnter for next stage; Ctrl+C cancels.\x1b[K`);
 			await waitForEnter();

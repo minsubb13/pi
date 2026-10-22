@@ -70,6 +70,31 @@ for (const columns of [80, 181, 204]) {
 	});
 }
 
+for (const columns of [80, 181, 204]) {
+	test(`v2 follow-up probe: erased padding, then two shrink candidates at ${columns} columns`, async () => {
+		const probe = createProbe(columns);
+		assert.deepEqual(probe.followupStages.map(({ id }) => id), ["b", "d1-after", "d3-after"]);
+		const terminal = new xterm.Terminal({ cols: columns, rows: 16, allowProposedApi: true });
+		const write = (text) => new Promise((resolve) => terminal.write(text, resolve));
+		const line = (row) => terminal.buffer.active.getLine(row + 4);
+		try {
+			await write(probe.followupStages[0].output);
+			for (let row = 0; row < probe.rows.length; row++) {
+				assert.equal(line(row).translateToString(true).trimEnd(), ` ${probe.rows[row]}`);
+				assert.equal(line(row).isWrapped, row > 0);
+			}
+			for (const stage of probe.followupStages.slice(1)) {
+				await write(stage.output);
+				assert.equal(line(0).translateToString(true).trimEnd(), ` ${probe.short}`, stage.id);
+				assert.equal(line(1).translateToString(true).trimEnd(), ` ${probe.hard}`, stage.id);
+				assert.equal(line(1).isWrapped, false, stage.id);
+			}
+		} finally {
+			terminal.dispose();
+		}
+	});
+}
+
 test("v2 probe exposes deterministic stages and refuses undersized widths", () => {
 	assert.deepEqual(createProbe(80).stages.map(({ id }) => id), ["a", "b", "c-before", "c-after", "d1-before", "d1-after", "d2-before", "d2-after", "d3-before", "d3-after"]);
 	for (const columns of [0, 79, undefined, Number.NaN]) assert.throws(() => createProbe(columns));
