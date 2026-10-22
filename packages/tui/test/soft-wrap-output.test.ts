@@ -405,7 +405,7 @@ test("overlays disable continuation and hiding one restores it", async () => {
 	}
 });
 
-test("a paragraph beginning above the viewport falls back to a full render", async () => {
+test("a paragraph beginning above the viewport redraws from the top visible row without a full render", async () => {
 	const terminal = new RecordingTerminal(20, 3);
 	const tui = new TuiMainScreen(terminal);
 	const rows = new Rows();
@@ -414,12 +414,41 @@ test("a paragraph beginning above the viewport falls back to a full render", asy
 	try {
 		tui.renderNow();
 		await terminal.flush();
+		terminal.writes = [];
 		rows.lines[3] = "changed fourth".padEnd(20);
 		tui.renderNow();
 		await terminal.flush();
-		assert.equal(tui.fullRedraws, 2);
-		assert.deepEqual(flags(terminal, 5), [false, true, true, true, false]);
-		assert.ok(terminal.getViewport()[1].includes("changed fourth"));
+		assert.equal(tui.fullRedraws, 1);
+		assert.ok(!terminal.output.includes("\x1b[2J"));
+		// Rewrite starts at the top visible row (third) and autowraps into the changed row.
+		assert.ok(terminal.output.includes(`\x1b[2K${"third".padEnd(20)}${RESET}${"changed fourth".padEnd(20)}${RESET}`));
+		assert.deepEqual(
+			terminal.getViewport().map((line) => line.trimEnd()),
+			["third", "changed fourth", "tail"],
+		);
+		assert.equal(terminal.buffer.getLine(3)?.isWrapped, true);
+	} finally {
+		tui.stop();
+	}
+});
+
+test("streaming a paragraph taller than the viewport stays on the differential path", () => {
+	const terminal = new RecordingTerminal(60, 12);
+	const tui = new TuiMainScreen(terminal);
+	const md = new Markdown("", 1, 0, defaultMarkdownTheme);
+	const footer = new Rows();
+	footer.lines = ["editor 1", "editor 2", "footer"];
+	tui.addChild(md);
+	tui.addChild(footer);
+	try {
+		let text = "";
+		for (let i = 0; i < 200; i++) {
+			text += "streamed ";
+			md.setText(text);
+			tui.renderNow();
+		}
+		assert.ok(tui.captureRenderState().previousLines.length > 12 * 2);
+		assert.equal(tui.fullRedraws, 1, "only the first render is a full render");
 	} finally {
 		tui.stop();
 	}

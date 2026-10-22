@@ -426,9 +426,13 @@ export class TuiMainScreen extends TuiBase implements TUI {
 			const expandedRange = this.expandChangedRangeForKittyImages(firstChanged, lastChanged, newLines);
 			firstChanged = expandedRange.firstChanged;
 			lastChanged = expandedRange.lastChanged;
+			const visibleChange = firstChanged >= prevViewportTop;
 			while (firstChanged > 0 && (continued[firstChanged - 1] || this.previousContinued[firstChanged - 1])) {
 				firstChanged--;
 			}
+			// A paragraph taller than the viewport would otherwise force a full redraw per streamed token.
+			// Start at the top visible row; the off-screen row keeps its join in Ghostty (probe v1).
+			if (visibleChange && firstChanged < prevViewportTop) firstChanged = prevViewportTop;
 			if (staleWrapRows.size > 0) {
 				// Row replacement may affect neighboring wrap flags. Repaint the remaining content.
 				lastChanged = Math.max(lastChanged, newLines.length - 1);
